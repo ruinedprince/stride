@@ -44,7 +44,9 @@ MAX_POLYGONS = 250
 NON_SHADE_PRIORITY = 0.3  # same mechanism tuned in Phase 1
 MIN_SHADE_AREA_M2 = 120
 SIMPLIFY_M = 2.0
-MIN_SUN_ELEVATION_DEG = 8  # below this, shadows are city-wide → skip the hour
+MIN_SUN_ELEVATION_DEG = 4  # below this the sun is at the horizon → skip the hour
+# (early/late walks have very long shadows, still useful; below ~4° or before
+# sunrise the shadow map is city-wide/undefined and the hour is skipped)
 
 # Default heights (m) by OSM building type when height/levels tags are absent
 BUILDING_HEIGHT_DEFAULTS = {

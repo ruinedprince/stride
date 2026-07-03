@@ -148,29 +148,19 @@ map.on("load", async () => {
     // Overlay is optional — routing still works without it.
   }
 
-  // Shade overlay (Phase 2) — polygons swapped per selected hour
-  map.addSource("shade-areas", {
-    type: "geojson",
-    data: { type: "FeatureCollection", features: [] },
-  });
-  map.addLayer({
-    id: "shade-fill",
-    type: "fill",
-    source: "shade-areas",
-    layout: { visibility: "none" },
-    paint: {
-      "fill-color": "#31456b",
-      "fill-opacity": 0,
-      "fill-opacity-transition": { duration: REDUCED ? 0 : 450 },
-    },
-  });
-  map.addLayer({
-    id: "shade-outline",
-    type: "line",
-    source: "shade-areas",
-    layout: { visibility: "none" },
-    paint: { "line-color": "#31456b", "line-opacity": 0.35, "line-width": 0.8 },
-  });
+  // Shade overlay (Phase 2) — two layers cross-dissolve between the baked hours
+  // that bracket the slider, so dragging the sun is continuous (no hard snap and
+  // no per-tick re-parse: only cheap opacity changes while inside an hour span).
+  for (const id of ["shade-a", "shade-b"]) {
+    map.addSource(id, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({
+      id: `${id}-fill`,
+      type: "fill",
+      source: id,
+      layout: { visibility: "none" },
+      paint: { "fill-color": "#31456b", "fill-opacity": 0 },
+    });
+  }
 
   // Comparison route (regular profile) — slate dashed, under the main line
   map.addSource("route-alt", {
@@ -463,25 +453,44 @@ async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
 
 // GraphHopper's round_trip only *targets* a distance — the heading it picks
 // from the seed can send a loop wildly over (a 10 km request measured anywhere
-// from 7 to 24 km). So try N seeds and keep the loop closest to the target.
-// Returns { response, seed, distance, tried }.
+// from 7 to 24 km). So try N seeds and keep a good one.
+//
+// When a preference is active (rankFC = the shade/green polygons), don't just
+// take the distance-closest: among the candidates within a distance band of the
+// closest, take the one that overlaps the preference most. Otherwise a loop can
+// hit the target distance while walking away from all the available shade.
 const BEST_OF = 6;
+const DIST_BAND = 0.08; // candidates within +8pp of the best distance error qualify
 
-async function generateFaithful(lat, lon, distanceKm, baseSeed, spec) {
+async function generateFaithful(lat, lon, distanceKm, baseSeed, spec, rankFC = null) {
   const target = distanceKm * 1000;
   const seeds = Array.from({ length: BEST_OF }, (_, i) => baseSeed + i);
   const settled = await Promise.all(
     seeds.map((s) =>
-      generateRoute(lat, lon, distanceKm, s, spec).then(
-        (r) => ({ response: r, seed: s, distance: r.paths[0].distance }),
-        () => null
-      )
+      generateRoute(lat, lon, distanceKm, s, spec).then((r) => {
+        const coords = r.paths[0].points.coordinates.map((c) => [c[0], c[1]]);
+        return {
+          response: r,
+          seed: s,
+          distance: r.paths[0].distance,
+          distErr: Math.abs(r.paths[0].distance - target) / target,
+          metric: rankFC ? fractionIn(coords, rankFC) : null,
+        };
+      }, () => null)
     )
   );
   const ok = settled.filter(Boolean);
   if (!ok.length) throw new TypeError("no route"); // let caller show SAMPLE
-  ok.sort((a, b) => Math.abs(a.distance - target) - Math.abs(b.distance - target));
-  return { ...ok[0], tried: ok.length };
+
+  let chosen;
+  if (rankFC) {
+    const bestErr = Math.min(...ok.map((c) => c.distErr));
+    const acceptable = ok.filter((c) => c.distErr <= bestErr + DIST_BAND);
+    chosen = acceptable.sort((a, b) => (b.metric ?? 0) - (a.metric ?? 0))[0];
+  } else {
+    chosen = ok.slice().sort((a, b) => a.distErr - b.distErr)[0];
+  }
+  return { ...chosen, tried: ok.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -490,11 +499,43 @@ async function generateFaithful(lat, lon, distanceKm, baseSeed, spec) {
 const shadeModelCache = {}; // integer hour -> GraphHopper custom_model (built from geojson)
 
 let pref = "none"; // none | green | shade
-let hour = 15; // continuous 7..17 while pref === shade
-let loadedShadeHour = null;
+let hour = 15; // continuous 8..17 while pref === shade
+
+// Two-layer shade blend: source shade-a holds the baked hour below the slider,
+// shade-b the one above; opacity cross-dissolves between them.
+const SHADE_OPACITY = 0.32;
+let aHour = null, bHour = null;
 
 function shadeHour() {
   return nearestBaked(hour);
+}
+
+// The two baked hours bracketing the current slider position.
+function bracket(h) {
+  const lo = [...BAKED_HOURS].reverse().find((x) => x <= h) ?? BAKED_HOURS[0];
+  const hi = BAKED_HOURS.find((x) => x >= h) ?? BAKED_HOURS[BAKED_HOURS.length - 1];
+  return [lo, hi];
+}
+
+// Cross-dissolve the shade overlay to the slider's position. Loads the bracket
+// hours if needed (async), then sets opacity by the fractional position — the
+// per-tick work while dragging inside an hour is just two cheap opacity writes.
+function updateShadeBlend() {
+  const [lo, hi] = bracket(hour);
+  const frac = hi > lo ? (hour - lo) / (hi - lo) : 0;
+
+  const paint = () => {
+    if (aHour !== lo && shadeCache[lo]) { map.getSource("shade-a").setData(shadeCache[lo]); aHour = lo; }
+    if (bHour !== hi && shadeCache[hi]) { map.getSource("shade-b").setData(shadeCache[hi]); bHour = hi; }
+    map.setPaintProperty("shade-a-fill", "fill-opacity", SHADE_OPACITY * (1 - frac));
+    map.setPaintProperty("shade-b-fill", "fill-opacity", SHADE_OPACITY * frac);
+  };
+
+  if (shadeCache[lo] !== undefined && shadeCache[hi] !== undefined) {
+    paint(); // both cached → synchronous, smooth while dragging
+  } else {
+    Promise.all([ensureShade(lo), ensureShade(hi)]).then(paint);
+  }
 }
 
 function activeShade() {
@@ -585,12 +626,9 @@ async function applyPreferenceOverlays() {
   const isShade = pref === "shade";
 
   if (isShade) {
-    const h = shadeHour();
-    await ensureShade(h);
-    if (shadeCache[h]) {
-      map.getSource("shade-areas").setData(shadeCache[h]);
-      loadedShadeHour = h;
-    }
+    const [lo, hi] = bracket(hour);
+    await Promise.all([ensureShade(lo), ensureShade(hi)]);
+    updateShadeBlend();
   }
 
   for (const layer of ["green-fill", "green-outline"]) {
@@ -598,13 +636,10 @@ async function applyPreferenceOverlays() {
       map.setLayoutProperty(layer, "visibility", pref === "green" ? "visible" : "none");
     }
   }
-  for (const layer of ["shade-fill", "shade-outline"]) {
+  for (const layer of ["shade-a-fill", "shade-b-fill"]) {
     if (map.getLayer(layer)) {
       map.setLayoutProperty(layer, "visibility", isShade ? "visible" : "none");
     }
-  }
-  if (map.getLayer("shade-fill")) {
-    map.setPaintProperty("shade-fill", "fill-opacity", isShade ? 0.3 : 0);
   }
 
   document.getElementById("sun-arc").hidden = !isShade;
@@ -629,21 +664,13 @@ document.querySelectorAll("#pref-segment .seg").forEach((btn) => {
   });
 });
 
-// Continuous sun slider — moves the sun, ambient tint and 3D light every frame;
-// the shadow overlay swaps when the nearest baked hour changes.
+// Continuous sun slider — moves the sun, ambient tint and 3D light every frame,
+// and cross-dissolves the shadow overlay between the bracketing baked hours.
 const sunSlider = document.getElementById("sun-slider");
 sunSlider.addEventListener("input", () => {
   hour = parseFloat(sunSlider.value);
   applySunVisuals();
-  const h = shadeHour();
-  if (h !== loadedShadeHour) {
-    ensureShade(h).then((fc) => {
-      if (fc && shadeHour() === h) {
-        map.getSource("shade-areas").setData(fc);
-        loadedShadeHour = h;
-      }
-    });
-  }
+  updateShadeBlend();
 });
 
 // Distance chips
@@ -726,7 +753,9 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
   setStatus("Traçando a caminhada…", "");
 
   try {
-    const best = await generateFaithful(lat, lon, km, seed, routingSpec());
+    // Pass the preference polygons so best-of prefers the shadiest/greenest of
+    // the distance-acceptable candidates, not just the distance-closest.
+    const best = await generateFaithful(lat, lon, km, seed, routingSpec(), prefCollection());
     drawRoute(best.response);
     const offBy = Math.abs(best.distance - km * 1000) / (km * 1000);
     const note =

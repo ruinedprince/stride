@@ -165,11 +165,15 @@ can send a loop far past it: a 10 km request, measured across 8 seeds, returned 
 high variance (some headings hit the river or a dead zone and detour). There is no
 "allow overlap" knob in the engine to fix this.
 
-So **Generate** runs 6 seeds and keeps the loop closest to the target (the 10 km case
-above becomes ~9 km instead of 20+). **Compare** does the same on the regular profile,
-then runs the preference profile on that winning seed — faithful distance *and* a fair
-head-to-head. **Surpreenda-me** deliberately skips best-of for a single random loop. If
-even the best of 6 is >20 % off, the UI says so plainly rather than pretending.
+So **Generate** runs 6 seeds and keeps a good loop. With no preference it takes the one
+closest to the target (the 10 km case above becomes ~9 km instead of 20+). **With a
+shade/green preference it takes the shadiest/greenest of the candidates within +8 pp of
+the closest distance** — otherwise round_trip can hit the target distance while walking
+away from all the available shade (measured: a 15 km 8 h loop went from 14 % → 29 % shade
+just by picking a better candidate). **Compare** picks the seed by distance on the
+regular profile, then runs the preference on that seed — faithful *and* a fair
+head-to-head. **Surpreenda-me** skips best-of for a single random loop. If even the best
+of 6 is >20 % off, the UI says so plainly.
 
 ## 3D buildings
 
@@ -246,12 +250,16 @@ Pipeline (`backend/scripts/build_shade_areas.py`, needs shapely):
    to route identically to the committed `shade_<H>.json`), so any hour routes with no
    server restart and no per-hour profiles.
 
-**Dynamic time-of-day.** Daylight is baked hour by hour (8–16 h here; sub-8° hours are
-skipped) and the sun becomes a **continuous slider**. Dragging it moves the sun and the
-3D sunlight and re-tints the UI *continuously* (azimuth/elevation interpolated between
-the two bracketing baked hours, via `shade-index.json`), while the shadow polygons and
-routing snap to the nearest baked hour. Arbitrary dates would need either a denser bake
-per date or an on-demand compute service — a documented next step, not in this build.
+**Dynamic time-of-day.** Daylight is baked hour by hour (8–17 h on 2026-07-03; hours whose
+sun is below 4° — before ~7:30 and after ~17:15 in this winter month — are skipped) and
+the sun becomes a **continuous slider**. Dragging it moves the sun, the 3D sunlight and the
+UI tint *continuously* (azimuth/elevation interpolated between the two bracketing baked
+hours, via `shade-index.json`). The shadow overlay **cross-dissolves** between those two
+baked hours across a two-layer blend — so there's no hard snap and, crucially, no per-tick
+re-parse: dragging inside an hour only writes two fill-opacities. Routing still snaps to the
+nearest baked hour (a route is for one time). Earlier hours (a 6 h summer walk) or arbitrary
+dates would need a denser bake per date or an on-demand compute service — a documented next
+step, not in this build.
 
 Honest limitations, on purpose:
 
