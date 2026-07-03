@@ -1,0 +1,46 @@
+# Stride Phase 0 — GraphHopper config (foot routing, flexible mode)
+# Based on config-example.yml from GraphHopper 11.0.
+graphhopper:
+  # OSM extract of Guaratinguetá-SP (bbox lon -45.30..-45.08, lat -22.92..-22.70)
+  datareader.file: data/guaratingueta.osm
+  graph.location: graph-cache
+
+  profiles:
+    - name: foot
+      custom_model_files: [foot.json]
+
+  # IMPORTANT: no profiles_ch — round_trip needs flexible mode (CH does not
+  # support algorithm=round_trip). With no CH preparation every request runs
+  # in flexible mode, no ch.disable flag needed.
+  profiles_ch: []
+  profiles_lm: []
+
+  # Encoded values required by the built-in foot.json custom model.
+  graph.encoded_values: foot_access, foot_priority, foot_average_speed, hike_rating, country, road_class, foot_road_access, mtb_rating
+
+  # Foot routing: motorways/trunks are never walkable, skip them at import.
+  import.osm.ignored_highways: motorway,trunk
+
+  prepare.min_network_size: 200
+  prepare.subnetworks.threads: 1
+
+  routing.non_ch.max_waypoint_distance: 1000000
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: localhost
+      max_request_header_size: 50k
+  request_log:
+    appenders: []
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: localhost
+
+logging:
+  appenders:
+    - type: console
+      time_zone: UTC
+      log_format: "%d{YYYY-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

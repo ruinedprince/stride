@@ -1,0 +1,14 @@
+# Node
+node_modules/
+dist/
+
+# GraphHopper — big binaries and generated graph, not versioned
+backend/graphhopper-web-*.jar
+backend/data/*.osm
+backend/data/*.osm.pbf
+backend/data/*.osm.gz
+backend/graph-cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
