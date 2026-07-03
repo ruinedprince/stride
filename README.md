@@ -72,6 +72,10 @@ python backend/scripts/fetch_ms_buildings.py
 
 # Shadow polygons + custom models for chosen local hours
 python backend/scripts/build_shade_areas.py --date 2026-07-03 --hours 9,12,15
+
+# 3D building blocks for the map (same footprints the shadows use, so blocks
+# and shade line up). Writes frontend/public/buildings.geojson (committed).
+python backend/scripts/build_buildings_3d.py
 ```
 
 ### 2. Start the routing backend
@@ -146,8 +150,33 @@ frontend/
   src/style.css
   public/green-areas.geojson generated green polygons for display
   public/shade-*.geojson     generated per-hour shadow maps for display
+  public/buildings.geojson   generated 3D building footprints (same as shadows)
   public/sample-route.json   offline fallback, clearly labeled SAMPLE
 ```
+
+## Distance faithfulness (best-of-N)
+
+`round_trip.distance` is only a *target*. The heading GraphHopper derives from the seed
+can send a loop far past it: a 10 km request, measured across 8 seeds, returned 7.3,
+**20.7**, 7.2, 9.0, **23.6**, 11.5, 9.3 and 15.7 km — not a systematic overshoot, just
+high variance (some headings hit the river or a dead zone and detour). There is no
+"allow overlap" knob in the engine to fix this.
+
+So **Generate** runs 6 seeds and keeps the loop closest to the target (the 10 km case
+above becomes ~9 km instead of 20+). **Compare** does the same on the regular profile,
+then runs the preference profile on that winning seed — faithful distance *and* a fair
+head-to-head. **Surpreenda-me** deliberately skips best-of for a single random loop. If
+even the best of 6 is >20 % off, the UI says so plainly rather than pretending.
+
+## 3D buildings
+
+The map extrudes `frontend/public/buildings.geojson` — the **same** OSM + Microsoft ML
+footprints the shadow pipeline uses (`build_buildings_3d.py`, ~20 k blocks within 3.2 km,
+heights from the same model). Earlier the map extruded OpenMapTiles' own `building` layer
+(~2.7 k OSM buildings), which is why shadows appeared with no block under them; sharing one
+source fixes the mismatch. Heights carry a constant ×2.6 vertical exaggeration for
+presence under the tilted camera — relative heights stay honest (a church still towers
+over a house), and the 3D lighting follows the chosen hour's real sun azimuth/elevation.
 
 ## Why flexible mode (no CH)?
 

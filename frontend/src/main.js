@@ -45,25 +45,50 @@ function ensureStartMarker(lon, lat) {
   }
 }
 
-function add3dBuildings() {
-  // The positron style ships openmaptiles building footprints with
-  // render_height — extrude them for the 3D city look.
-  const style = map.getStyle();
-  const vecId = Object.keys(style.sources).find((k) => style.sources[k].type === "vector");
-  if (!vecId) return;
-  const firstSymbol = style.layers.find((l) => l.type === "symbol")?.id;
+// Vertical exaggeration for the 3D blocks — the footprints are mostly 1-story
+// houses (~4 m); a straight extrusion is invisible under a tilted camera. A
+// constant multiplier keeps the *relative* heights honest (a church still
+// towers over a house) while giving the city real presence.
+const HEIGHT_EXAGGERATION = 2.6;
+
+async function add3dBuildings() {
+  // Hide OpenMapTiles' own sparse building layer — we replace it with the same
+  // footprints that cast the shadows, so blocks and shade line up.
+  for (const layer of map.getStyle().layers) {
+    if (layer.id.includes("building")) {
+      map.setLayoutProperty(layer.id, "visibility", "none");
+    }
+  }
+
+  let buildings;
+  try {
+    buildings = await fetch("/buildings.geojson").then((r) => r.json());
+  } catch {
+    return; // routing still works without the 3D layer
+  }
+  map.addSource("buildings", { type: "geojson", data: buildings });
+
+  const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
   map.addLayer(
     {
       id: "stride-3d-buildings",
       type: "fill-extrusion",
-      source: vecId,
-      "source-layer": "building",
-      minzoom: 13,
+      source: "buildings",
+      minzoom: 12.5,
       paint: {
-        "fill-extrusion-color": "#e9e5da",
-        "fill-extrusion-height": ["coalesce", ["get", "render_height"], 5],
-        "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
-        "fill-extrusion-opacity": 0.72,
+        // Warm-to-cool by height so volume reads even in flat afternoon light
+        "fill-extrusion-color": [
+          "interpolate", ["linear"], ["get", "h"],
+          3, "#e7e1d4",
+          8, "#d8cdb8",
+          16, "#c2a988",
+          30, "#a98a6a",
+        ],
+        "fill-extrusion-height": ["*", ["get", "h"], HEIGHT_EXAGGERATION],
+        "fill-extrusion-base": 0,
+        "fill-extrusion-opacity": 0.92,
+        "fill-extrusion-vertical-gradient": true,
+        "fill-extrusion-height-transition": { duration: REDUCED ? 0 : 800 },
       },
     },
     firstSymbol
@@ -405,6 +430,29 @@ async function generateRoute(lat, lon, distanceKm, seed, profile = "foot") {
   return body;
 }
 
+// GraphHopper's round_trip only *targets* a distance — the heading it picks
+// from the seed can send a loop wildly over (a 10 km request measured anywhere
+// from 7 to 24 km). So try N seeds and keep the loop closest to the target.
+// Returns { response, seed, distance, tried }.
+const BEST_OF = 6;
+
+async function generateFaithful(lat, lon, distanceKm, baseSeed, profile) {
+  const target = distanceKm * 1000;
+  const seeds = Array.from({ length: BEST_OF }, (_, i) => baseSeed + i);
+  const settled = await Promise.all(
+    seeds.map((s) =>
+      generateRoute(lat, lon, distanceKm, s, profile).then(
+        (r) => ({ response: r, seed: s, distance: r.paths[0].distance }),
+        () => null
+      )
+    )
+  );
+  const ok = settled.filter(Boolean);
+  if (!ok.length) throw new TypeError("no route"); // let caller show SAMPLE
+  ok.sort((a, b) => Math.abs(a.distance - target) - Math.abs(b.distance - target));
+  return { ...ok[0], tried: ok.length };
+}
+
 // ---------------------------------------------------------------------------
 // Preference state (Phase 1 green / Phase 2 shade) + the sun arc
 // ---------------------------------------------------------------------------
@@ -603,8 +651,14 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
   setStatus("Traçando a caminhada…", "");
 
   try {
-    const response = await generateRoute(lat, lon, km, seed, profile);
-    drawRoute(response);
+    const best = await generateFaithful(lat, lon, km, seed, profile);
+    drawRoute(best.response);
+    const offBy = Math.abs(best.distance - km * 1000) / (km * 1000);
+    const note =
+      offBy > 0.2
+        ? " — a malha da região não tem um circuito mais próximo"
+        : ` (melhor de ${best.tried} variações)`;
+    setStatus(`Alvo ${km} km → ${fmtKm(best.distance)}${note}.`, "ok");
   } catch (err) {
     // GraphHopper unreachable → bundled SAMPLE fallback, clearly labeled.
     if (err instanceof TypeError) {
@@ -644,10 +698,12 @@ document.getElementById("compare").addEventListener("click", async () => {
   setStatus("Traçando as duas caminhadas…", "");
 
   try {
-    const [regular, preferred] = await Promise.all([
-      generateRoute(lat, lon, km, seed, "foot"),
-      generateRoute(lat, lon, km, seed, profile),
-    ]);
+    // Pick the seed whose regular loop is closest to the target, then run the
+    // preference profile on that SAME seed — faithful distance and a fair
+    // head-to-head (both start from the same heading).
+    const best = await generateFaithful(lat, lon, km, seed, "foot");
+    const regular = best.response;
+    const preferred = await generateRoute(lat, lon, km, best.seed, profile);
 
     // Slate dashed = regular; solid green = preference-aware (on top)
     const regCoords = regular.paths[0].points.coordinates.map((c) => [c[0], c[1]]);
@@ -668,8 +724,7 @@ document.getElementById("compare").addEventListener("click", async () => {
     );
     const pct = (f) => (f === null ? "?" : `${Math.round(f * 100)}%`);
     setStatus(
-      `<b>Variação ${seed}:</b> ` +
-        `<span class="cmp-reg">normal ${fmtKm(regular.paths[0].distance)} · ${pct(fReg)} ${metric}</span> vs. ` +
+      `<span class="cmp-reg">normal ${fmtKm(regular.paths[0].distance)} · ${pct(fReg)} ${metric}</span> vs. ` +
         `<span class="cmp-pref">${metric} ${fmtKm(preferred.paths[0].distance)} · ${pct(fPref)}</span>`,
       "ok"
     );
