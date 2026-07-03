@@ -223,6 +223,21 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Elevation & relief
+
+GraphHopper imports **CGIAR SRTM** elevation (90 m, open, no key — downloaded on first
+import into `backend/elevation-cache/`, gitignored). Routes then carry `ascend`/`descend`
+and a 3rd elevation coordinate, so the panel shows **total climb**, the **altitude range**,
+and an **elevation profile** chart (area+line, x by real cumulative distance). Guaratinguetá
+sits at ~530 m and is fairly flat — a typical 7 km loop climbs ~130 m.
+
+The map adds a **hillshade** layer from open terrarium-encoded DEM tiles (Mapzen/AWS Terrain
+Tiles) to show the relief — subtle downtown, clearer toward the river valley and the hills.
+`average_slope`/`max_slope` encoded values are imported too, ready for a flat-vs-hilly
+routing preference (not yet wired — the terrain here is gentle enough that it's a small
+follow-up). 3D terrain (raising the ground mesh) is left out for now because it would need
+the building extrusions re-based onto the terrain.
+
 ## Phase 2 — shade-aware walks (how it works)
 
 The idea (inspired by [CoolWalks, arXiv:2405.01225](https://arxiv.org/abs/2405.01225)):

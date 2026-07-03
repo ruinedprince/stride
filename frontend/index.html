@@ -107,8 +107,19 @@
         <dl id="stats" hidden>
           <div class="stat"><dt>Distância</dt><dd id="stat-distance">–</dd></div>
           <div class="stat"><dt>Duração</dt><dd id="stat-duration">–</dd></div>
+          <div class="stat"><dt>Subida</dt><dd id="stat-ascent">–</dd></div>
           <div class="stat"><dt>No verde</dt><dd id="stat-green">–</dd></div>
           <div class="stat"><dt>Na sombra</dt><dd id="stat-shade">–</dd></div>
+          <div class="stat"><dt>Altitude</dt><dd id="stat-alt">–</dd></div>
+
+          <figure id="elev-profile" hidden>
+            <figcaption>Perfil de elevação</figcaption>
+            <svg viewBox="0 0 260 60" preserveAspectRatio="none" aria-hidden="true">
+              <path id="elev-area" d="" />
+              <path id="elev-line" d="" />
+            </svg>
+          </figure>
+
           <div class="loop-pill" id="stat-loop">–</div>
         </dl>
       </aside>

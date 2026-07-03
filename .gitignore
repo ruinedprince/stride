@@ -21,3 +21,6 @@ backend/custom_models/shade_*.json
 
 # Python
 __pycache__/
+
+# GraphHopper elevation tiles (downloaded)
+backend/elevation-cache/

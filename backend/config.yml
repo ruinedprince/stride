@@ -5,6 +5,13 @@ graphhopper:
   datareader.file: data/guaratingueta.osm
   graph.location: graph-cache
 
+  # Phase 4 — elevation. CGIAR SRTM (90 m, open, no key) is downloaded on the
+  # first import and cached; route responses then carry ascend/descend and the
+  # geometry gets a 3rd (elevation) coordinate. average_slope/max_slope are
+  # exposed for a future flat-vs-hilly preference.
+  graph.elevation.provider: cgiar
+  graph.elevation.cache_dir: elevation-cache
+
   profiles:
     - name: foot
       custom_model_files: [foot.json]
@@ -27,8 +34,9 @@ graphhopper:
   profiles_ch: []
   profiles_lm: []
 
-  # Encoded values required by the built-in foot.json custom model.
-  graph.encoded_values: foot_access, foot_priority, foot_average_speed, hike_rating, country, road_class, foot_road_access, mtb_rating
+  # Encoded values required by the built-in foot.json custom model, plus
+  # average_slope/max_slope (need elevation) for a future flat/hilly preference.
+  graph.encoded_values: foot_access, foot_priority, foot_average_speed, hike_rating, country, road_class, foot_road_access, mtb_rating, average_slope, max_slope
 
   # Foot routing: motorways/trunks are never walkable, skip them at import.
   import.osm.ignored_highways: motorway,trunk

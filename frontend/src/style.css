@@ -443,6 +443,27 @@ body {
   letter-spacing: -0.01em;
 }
 
+#elev-profile {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px 8px;
+  background: var(--paper-solid);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+}
+#elev-profile[hidden] { display: none; }
+#elev-profile figcaption {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+#elev-profile svg { width: 100%; height: 46px; display: block; overflow: visible; }
+#elev-area { fill: color-mix(in srgb, var(--green) 14%, transparent); stroke: none; }
+#elev-line { fill: none; stroke: var(--green); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+
 .loop-pill {
   grid-column: 1 / -1;
   padding: 7px 12px;

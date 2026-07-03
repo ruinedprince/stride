@@ -122,7 +122,40 @@ function setSunLight(hourOrNull) {
   }
 }
 
+function addHillshade() {
+  // Terrain relief (Phase 4) — the city sits at ~530 m with the Serra da
+  // Mantiqueira around it. Open, keyless terrarium-encoded DEM tiles.
+  try {
+    map.addSource("dem", {
+      type: "raster-dem",
+      tiles: ["https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png"],
+      encoding: "terrarium",
+      tileSize: 256,
+      maxzoom: 15,
+      attribution: "Elevation: Mapzen/AWS Terrain Tiles",
+    });
+    const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
+    map.addLayer(
+      {
+        id: "hillshade",
+        type: "hillshade",
+        source: "dem",
+        paint: {
+          "hillshade-shadow-color": "#5b5048",
+          "hillshade-accent-color": "#6b5a48",
+          "hillshade-highlight-color": "#fffdf7",
+          "hillshade-exaggeration": 0.5,
+        },
+      },
+      firstSymbol
+    );
+  } catch {
+    // Optional — the map works without relief.
+  }
+}
+
 map.on("load", async () => {
+  addHillshade();
   add3dBuildings();
   setSunLight(null);
 
@@ -343,6 +376,15 @@ function drawRoute(ghResponse, { isSample = false } = {}) {
   document.getElementById("stat-shade").textContent =
     sf === null ? "—" : `${Math.round(sf * 100)}%`;
 
+  // Elevation (Phase 4): total climb, altitude range, profile chart
+  document.getElementById("stat-ascent").textContent =
+    path.ascend != null ? `${Math.round(path.ascend)} m` : "—";
+  const eles = coords.map((c) => c[2]).filter((v) => typeof v === "number");
+  document.getElementById("stat-alt").textContent = eles.length
+    ? `${Math.round(Math.min(...eles))}–${Math.round(Math.max(...eles))} m`
+    : "—";
+  drawElevationProfile(coords, eles);
+
   const sampleBadge = isSample
     ? ' <span class="sample-badge">AMOSTRA — não é rota real</span>'
     : "";
@@ -350,6 +392,35 @@ function drawRoute(ghResponse, { isSample = false } = {}) {
     (isSample ? "Exibindo resposta de exemplo." : "Caminhada gerada.") + sampleBadge,
     isSample ? "warn" : "ok"
   );
+}
+
+// Elevation profile — area+line chart of altitude along the route, x by real
+// cumulative distance so climbs sit where they happen.
+function drawElevationProfile(coords, eles) {
+  const fig = document.getElementById("elev-profile");
+  if (eles.length < 2) {
+    fig.hidden = true;
+    return;
+  }
+  const W = 260, H = 60, TOP = 6, BOT = 52;
+  const minE = Math.min(...eles), maxE = Math.max(...eles);
+  const span = Math.max(1, maxE - minE);
+
+  const dist = [0];
+  for (let i = 1; i < coords.length; i++) {
+    dist.push(dist[i - 1] + haversine(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]));
+  }
+  const total = dist[dist.length - 1] || 1;
+
+  const pts = coords.map((c, i) => {
+    const x = (dist[i] / total) * W;
+    const y = TOP + (1 - (c[2] - minE) / span) * (BOT - TOP);
+    return `${x.toFixed(1)} ${y.toFixed(1)}`;
+  });
+  const line = "M" + pts.join(" L");
+  document.getElementById("elev-line").setAttribute("d", line);
+  document.getElementById("elev-area").setAttribute("d", `${line} L${W} ${BOT} L0 ${BOT} Z`);
+  fig.hidden = false;
 }
 
 function haversine(lat1, lon1, lat2, lon2) {
@@ -427,6 +498,7 @@ async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
     "round_trip.seed": seed,
     points_encoded: false,
     "ch.disable": true,
+    elevation: true, // 3rd coordinate + ascend/descend for the profile chart
   };
 
   let res;
