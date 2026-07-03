@@ -10,7 +10,7 @@
     <div id="app">
       <aside id="panel">
         <h1>Stride</h1>
-        <p class="tagline">Phase 0 — loop walk generator (Guaratinguetá-SP)</p>
+        <p class="tagline">Phase 1 — greenery-aware loop generator (Guaratinguetá-SP)</p>
 
         <form id="route-form">
           <label>
@@ -34,7 +34,12 @@
             Variant (seed)
             <input type="number" id="seed" min="0" step="1" value="0" />
           </label>
+          <label class="checkbox">
+            <input type="checkbox" id="prefer-green" />
+            🌳 Prefer green areas
+          </label>
           <button type="submit" id="generate">Generate route</button>
+          <button type="button" id="compare">Compare gray × green</button>
         </form>
 
         <div id="status"></div>
@@ -42,6 +47,7 @@
           <div><dt>Distance</dt><dd id="stat-distance">–</dd></div>
           <div><dt>Duration</dt><dd id="stat-duration">–</dd></div>
           <div><dt>Closes the loop</dt><dd id="stat-loop">–</dd></div>
+          <div><dt>In green areas</dt><dd id="stat-green">–</dd></div>
         </dl>
       </aside>
       <div id="map"></div>

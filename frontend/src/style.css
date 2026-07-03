@@ -73,6 +73,30 @@ body {
 #generate:hover { background: #1e5a3a; }
 #generate:disabled { background: #9ab3a3; cursor: wait; }
 
+.checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px !important;
+  cursor: pointer;
+}
+.checkbox input { display: inline-block; width: auto !important; margin: 0 !important; }
+
+#compare {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #256d46;
+  background: #fff;
+  border: 1px solid #256d46;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#compare:hover { background: #e6f0e9; }
+#compare:disabled { color: #9ab3a3; border-color: #9ab3a3; cursor: wait; }
+
 #status { margin-top: 14px; font-size: 13px; line-height: 1.45; }
 #status.error { color: #a3271f; }
 #status.warn { color: #8a6d00; }
