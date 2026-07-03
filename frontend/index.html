@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stride — walking route generator (Phase 0)</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="panel">
+        <h1>Stride</h1>
+        <p class="tagline">Phase 0 — loop walk generator (Guaratinguetá-SP)</p>
+
+        <form id="route-form">
+          <label>
+            Start latitude
+            <input type="number" id="lat" step="any" value="-22.8164" required />
+          </label>
+          <label>
+            Start longitude
+            <input type="number" id="lon" step="any" value="-45.1927" required />
+          </label>
+          <label>
+            Distance (km)
+            <input type="number" id="distance" min="1" max="30" step="0.5" value="6" required />
+          </label>
+          <div class="presets">
+            <button type="button" class="preset" data-km="3">3 km</button>
+            <button type="button" class="preset" data-km="6">6 km</button>
+            <button type="button" class="preset" data-km="10">10 km</button>
+          </div>
+          <label>
+            Variant (seed)
+            <input type="number" id="seed" min="0" step="1" value="0" />
+          </label>
+          <button type="submit" id="generate">Generate route</button>
+        </form>
+
+        <div id="status"></div>
+        <dl id="stats" hidden>
+          <div><dt>Distance</dt><dd id="stat-distance">–</dd></div>
+          <div><dt>Duration</dt><dd id="stat-duration">–</dd></div>
+          <div><dt>Closes the loop</dt><dd id="stat-loop">–</dd></div>
+        </dl>
+      </aside>
+      <div id="map"></div>
+    </div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

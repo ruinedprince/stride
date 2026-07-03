@@ -1,0 +1,97 @@
+* { box-sizing: border-box; }
+
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1c2b23;
+}
+
+#app { display: flex; }
+
+#panel {
+  width: 300px;
+  flex-shrink: 0;
+  padding: 20px;
+  overflow-y: auto;
+  background: #f4f8f5;
+  border-right: 1px solid #d8e2da;
+}
+
+#panel h1 {
+  margin: 0 0 2px;
+  font-size: 26px;
+  letter-spacing: 0.5px;
+  color: #256d46;
+}
+
+.tagline { margin: 0 0 18px; font-size: 12px; color: #5b6b60; }
+
+#route-form label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #3a4a40;
+}
+
+#route-form input {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 7px 8px;
+  font-size: 14px;
+  border: 1px solid #c3d0c6;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.presets { display: flex; gap: 6px; margin: 4px 0 12px; }
+
+.preset {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 13px;
+  border: 1px solid #c3d0c6;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.preset:hover { background: #e6f0e9; }
+
+#generate {
+  width: 100%;
+  padding: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: #256d46;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#generate:hover { background: #1e5a3a; }
+#generate:disabled { background: #9ab3a3; cursor: wait; }
+
+#status { margin-top: 14px; font-size: 13px; line-height: 1.45; }
+#status.error { color: #a3271f; }
+#status.warn { color: #8a6d00; }
+#status.ok { color: #256d46; }
+
+#stats { margin: 14px 0 0; padding: 12px; background: #fff; border: 1px solid #d8e2da; border-radius: 8px; }
+#stats div { display: flex; justify-content: space-between; margin-bottom: 6px; }
+#stats div:last-child { margin-bottom: 0; }
+#stats dt { font-size: 12px; color: #5b6b60; }
+#stats dd { margin: 0; font-size: 13px; font-weight: 600; }
+
+#map { flex: 1; }
+
+.sample-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #ffe9a8;
+  color: #6b5300;
+  font-weight: 700;
+  font-size: 11px;
+}
