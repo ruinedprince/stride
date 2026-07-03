@@ -9,13 +9,30 @@ const DEFAULT_CENTER = { lat: -22.8164, lon: -45.1927 }; // Guaratinguetá-SP ce
 const BBOX = { lonMin: -45.3, latMin: -22.92, lonMax: -45.08, latMax: -22.7 };
 const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// Sun position per preset hour (2026-07-03) — refreshed from the shade
-// geojson properties when loaded, these are the baked fallbacks.
-const SUN = {
-  9: { az: 47.7, el: 25.8 },
-  12: { az: 1.6, el: 44.2 },
-  15: { az: 314.1, el: 27.6 },
-};
+// Shade is pre-baked at whole hours (build_shade_areas.py). shade-index.json
+// lists each baked hour with the real sun azimuth/elevation from the pipeline.
+// The slider is continuous; the sun dot/light interpolate between baked hours,
+// while the shadow polygons snap to the nearest baked hour.
+let BAKED_HOURS = [9, 12, 15]; // replaced by the manifest on load
+const SUN_BY_HOUR = { 9: { az: 47.7, el: 25.8 }, 12: { az: 1.6, el: 44.2 }, 15: { az: 314.1, el: 27.6 } };
+
+function nearestBaked(h) {
+  return BAKED_HOURS.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
+}
+
+// Continuous sun az/el, linearly interpolated between the two baked hours that
+// bracket `h`. Azimuth is unwrapped so it doesn't jump across 360→0 at noon.
+function sunAt(h) {
+  const lo = [...BAKED_HOURS].reverse().find((x) => x <= h) ?? BAKED_HOURS[0];
+  const hi = BAKED_HOURS.find((x) => x >= h) ?? BAKED_HOURS[BAKED_HOURS.length - 1];
+  const a = SUN_BY_HOUR[lo], b = SUN_BY_HOUR[hi];
+  if (!a || !b) return a || b || { az: 0, el: 30 };
+  if (lo === hi) return a;
+  const t = (h - lo) / (hi - lo);
+  let az0 = a.az, az1 = b.az;
+  if (Math.abs(az1 - az0) > 180) az1 += az1 < az0 ? 360 : -360; // shortest arc
+  return { az: (az0 + (az1 - az0) * t + 360) % 360, el: a.el + (b.el - a.el) * t };
+}
 
 // ---------------------------------------------------------------------------
 // Map — OpenFreeMap vector tiles (open, no API key), tilted 3D camera
@@ -95,10 +112,10 @@ async function add3dBuildings() {
   );
 }
 
-function setSunLight(hour) {
+function setSunLight(hourOrNull) {
   // Light the 3D buildings from the real sun direction of the chosen hour.
-  if (hour && SUN[hour]) {
-    const { az, el } = SUN[hour];
+  if (hourOrNull != null) {
+    const { az, el } = sunAt(hourOrNull);
     map.setLight({ anchor: "map", position: [1.3, az, 90 - el], intensity: 0.35 });
   } else {
     map.setLight({ anchor: "viewport", position: [1.15, 210, 30], intensity: 0.25 });
@@ -410,18 +427,32 @@ function fractionIn(coords, fc) {
 // ---------------------------------------------------------------------------
 // GraphHopper request
 // ---------------------------------------------------------------------------
-async function generateRoute(lat, lon, distanceKm, seed, profile = "foot") {
-  const params = new URLSearchParams({
-    point: `${lat},${lon}`,
+async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
+  const profile = spec.profile || "foot";
+  const cm = spec.customModel || null;
+  const base = {
     profile,
     algorithm: "round_trip",
-    "round_trip.distance": String(Math.round(distanceKm * 1000)),
-    "round_trip.seed": String(seed),
-    points_encoded: "false",
-    "ch.disable": "true",
-  });
+    "round_trip.distance": Math.round(distanceKm * 1000),
+    "round_trip.seed": seed,
+    points_encoded: false,
+    "ch.disable": true,
+  };
 
-  const res = await fetch(`${GRAPHHOPPER_URL}?${params}`);
+  let res;
+  if (cm) {
+    // Per-request shade model → POST with custom_model in the body.
+    res = await fetch(GRAPHHOPPER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ points: [[lon, lat]], ...base, custom_model: cm }),
+    });
+  } else {
+    const params = new URLSearchParams({ point: `${lat},${lon}` });
+    for (const [k, v] of Object.entries(base)) params.set(k, String(v));
+    res = await fetch(`${GRAPHHOPPER_URL}?${params}`);
+  }
+
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     const msg = body && body.message ? body.message : `HTTP ${res.status}`;
@@ -436,12 +467,12 @@ async function generateRoute(lat, lon, distanceKm, seed, profile = "foot") {
 // Returns { response, seed, distance, tried }.
 const BEST_OF = 6;
 
-async function generateFaithful(lat, lon, distanceKm, baseSeed, profile) {
+async function generateFaithful(lat, lon, distanceKm, baseSeed, spec) {
   const target = distanceKm * 1000;
   const seeds = Array.from({ length: BEST_OF }, (_, i) => baseSeed + i);
   const settled = await Promise.all(
     seeds.map((s) =>
-      generateRoute(lat, lon, distanceKm, s, profile).then(
+      generateRoute(lat, lon, distanceKm, s, spec).then(
         (r) => ({ response: r, seed: s, distance: r.paths[0].distance }),
         () => null
       )
@@ -456,29 +487,18 @@ async function generateFaithful(lat, lon, distanceKm, baseSeed, profile) {
 // ---------------------------------------------------------------------------
 // Preference state (Phase 1 green / Phase 2 shade) + the sun arc
 // ---------------------------------------------------------------------------
-const PROFILES = {
-  none: "foot",
-  green: "foot_green",
-  shade_9: "foot_shade_9",
-  shade_12: "foot_shade_12",
-  shade_15: "foot_shade_15",
-};
-const PREF_LABELS = {
-  green: "verde",
-  shade_9: "sombra 9h",
-  shade_12: "sombra 12h",
-  shade_15: "sombra 15h",
-};
+const shadeModelCache = {}; // integer hour -> GraphHopper custom_model (built from geojson)
 
 let pref = "none"; // none | green | shade
-let hour = 15; // 9 | 12 | 15
+let hour = 15; // continuous 7..17 while pref === shade
+let loadedShadeHour = null;
 
-function currentPref() {
-  return pref === "shade" ? `shade_${hour}` : pref;
+function shadeHour() {
+  return nearestBaked(hour);
 }
 
 function activeShade() {
-  return pref === "shade" ? shadeCache[hour] || null : null;
+  return pref === "shade" ? shadeCache[shadeHour()] || null : null;
 }
 
 function prefCollection() {
@@ -486,41 +506,91 @@ function prefCollection() {
   return activeShade();
 }
 
-// Sun arc geometry: semicircle r=80 centered at (100, 92) in the SVG viewBox.
-// 9h rises on the left, 12h at the top, 15h descends right.
-const ARC_ANGLE = { 9: 150, 12: 90, 15: 30 };
+// What to send GraphHopper for the current preference: green uses the static
+// foot_green profile; shade uses foot + a per-request custom model (so any hour
+// routes with no server restart), none uses plain foot.
+function routingSpec() {
+  if (pref === "green") return { profile: "foot_green", customModel: null };
+  if (pref === "shade") return { profile: "foot", customModel: shadeModelCache[shadeHour()] || null };
+  return { profile: "foot", customModel: null };
+}
+
+function prefLabel() {
+  if (pref === "green") return "verde";
+  if (pref === "shade") return `sombra ${fmtHour(hour)}`;
+  return "";
+}
+
+// Build a GraphHopper custom model from a shade display geojson — polygons
+// become `areas`, edges outside them get priority × 0.3. Verified to route
+// identically to the committed shade_<h>.json files.
+function buildShadeModel(fc) {
+  const priority = fc.features.map((f, i) => ({
+    [i === 0 ? "if" : "else_if"]: `in_${f.id}`,
+    multiply_by: 1.0,
+  }));
+  priority.push({ else: "", multiply_by: 0.3 });
+  return { priority, areas: { type: "FeatureCollection", features: fc.features } };
+}
+
+async function ensureShade(h) {
+  if (shadeCache[h] !== undefined) return shadeCache[h];
+  try {
+    const fc = await fetch(`/shade-${h}.geojson`).then((r) => r.json());
+    shadeCache[h] = fc;
+    shadeModelCache[h] = buildShadeModel(fc);
+    if (fc.properties?.sun_azimuth_deg != null) {
+      SUN_BY_HOUR[h] = { az: fc.properties.sun_azimuth_deg, el: fc.properties.sun_elevation_deg };
+    }
+  } catch {
+    shadeCache[h] = null;
+  }
+  return shadeCache[h];
+}
+
+// --- continuous sun visuals --------------------------------------------------
 const CARDINAL = ["N", "NE", "L", "SE", "S", "SO", "O", "NO"];
 
-function updateSunArc() {
-  const a = (ARC_ANGLE[hour] * Math.PI) / 180;
-  const x = 100 + 80 * Math.cos(a);
-  const y = 92 - 80 * Math.sin(a);
-  document.getElementById("sun-dot").style.transform = `translate(${x}px, ${y}px)`;
+function fmtHour(h) {
+  const hh = Math.floor(h);
+  const mm = Math.round((h - hh) * 60);
+  return mm === 0 ? `${hh}h` : `${hh}h${String(mm).padStart(2, "0")}`;
+}
 
-  const sun = SUN[hour];
-  const dir = CARDINAL[Math.round(sun.az / 45) % 8];
+// Warm near the horizon (dawn/dusk), bright amber at high sun.
+function sunColor(el) {
+  const t = Math.max(0, Math.min(1, el / 45));
+  const lerp = (a, b) => Math.round(a + (b - a) * t);
+  const low = [210, 105, 30], high = [242, 169, 59]; // #d2691e → #f2a93b
+  return `rgb(${lerp(low[0], high[0])}, ${lerp(low[1], high[1])}, ${lerp(low[2], high[2])})`;
+}
+
+function updateSunArc() {
+  const { az, el } = sunAt(hour);
+  const x = 20 + 160 * ((hour - 7) / 10); // 7h left → 17h right
+  const y = 92 - 80 * Math.max(0, Math.min(1, el / 50)); // height by real elevation
+  document.getElementById("sun-dot").style.transform = `translate(${x}px, ${y}px)`;
+  const dir = CARDINAL[Math.round(az / 45) % 8];
   document.getElementById("sun-info").textContent =
-    `${hour}h · sol a ${dir}, ${Math.round(sun.el)}° acima do horizonte`;
+    `${fmtHour(hour)} · sol a ${dir}, ${Math.round(el)}° acima do horizonte`;
+}
+
+function applySunVisuals() {
+  document.documentElement.style.setProperty("--sun", sunColor(sunAt(hour).el));
+  setSunLight(hour);
+  updateSunArc();
 }
 
 async function applyPreferenceOverlays() {
   const isShade = pref === "shade";
 
-  if (isShade && !shadeCache[hour]) {
-    try {
-      const fc = await fetch(`/shade-${hour}.geojson`).then((r) => r.json());
-      shadeCache[hour] = fc;
-      // Refresh the baked sun constants from the pipeline's own output
-      if (fc.properties?.sun_azimuth_deg != null) {
-        SUN[hour] = { az: fc.properties.sun_azimuth_deg, el: fc.properties.sun_elevation_deg };
-      }
-    } catch {
-      shadeCache[hour] = null;
+  if (isShade) {
+    const h = shadeHour();
+    await ensureShade(h);
+    if (shadeCache[h]) {
+      map.getSource("shade-areas").setData(shadeCache[h]);
+      loadedShadeHour = h;
     }
-  }
-  if (isShade && shadeCache[hour]) {
-    const src = map.getSource("shade-areas");
-    if (src) src.setData(shadeCache[hour]);
   }
 
   for (const layer of ["green-fill", "green-outline"]) {
@@ -537,11 +607,13 @@ async function applyPreferenceOverlays() {
     map.setPaintProperty("shade-fill", "fill-opacity", isShade ? 0.3 : 0);
   }
 
-  // Ambient hour tint + sun-true 3D lighting
-  document.body.dataset.hour = isShade ? String(hour) : "";
-  setSunLight(isShade ? hour : null);
   document.getElementById("sun-arc").hidden = !isShade;
-  if (isShade) updateSunArc();
+  if (isShade) {
+    applySunVisuals();
+  } else {
+    document.documentElement.style.removeProperty("--sun");
+    setSunLight(null);
+  }
 }
 
 // Segmented preference control
@@ -557,17 +629,21 @@ document.querySelectorAll("#pref-segment .seg").forEach((btn) => {
   });
 });
 
-// Hour chips
-document.querySelectorAll(".hour").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    hour = parseInt(btn.dataset.hour, 10);
-    document.querySelectorAll(".hour").forEach((b) => {
-      const active = b === btn;
-      b.classList.toggle("is-active", active);
-      b.setAttribute("aria-checked", String(active));
+// Continuous sun slider — moves the sun, ambient tint and 3D light every frame;
+// the shadow overlay swaps when the nearest baked hour changes.
+const sunSlider = document.getElementById("sun-slider");
+sunSlider.addEventListener("input", () => {
+  hour = parseFloat(sunSlider.value);
+  applySunVisuals();
+  const h = shadeHour();
+  if (h !== loadedShadeHour) {
+    ensureShade(h).then((fc) => {
+      if (fc && shadeHour() === h) {
+        map.getSource("shade-areas").setData(fc);
+        loadedShadeHour = h;
+      }
     });
-    applyPreferenceOverlays();
-  });
+  }
 });
 
 // Distance chips
@@ -623,7 +699,6 @@ function readForm() {
     lon: parseFloat(document.getElementById("lon").value),
     km: parseFloat(document.getElementById("distance").value),
     seed: parseInt(document.getElementById("seed").value || "0", 10),
-    profile: PROFILES[currentPref()] || "foot",
   };
 }
 
@@ -642,7 +717,7 @@ function setBusy(btn, busy) {
 // ---------------------------------------------------------------------------
 document.getElementById("route-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const { lat, lon, km, seed, profile } = readForm();
+  const { lat, lon, km, seed } = readForm();
 
   const btn = document.getElementById("generate");
   setBusy(btn, true);
@@ -651,7 +726,7 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
   setStatus("Traçando a caminhada…", "");
 
   try {
-    const best = await generateFaithful(lat, lon, km, seed, profile);
+    const best = await generateFaithful(lat, lon, km, seed, routingSpec());
     drawRoute(best.response);
     const offBy = Math.abs(best.distance - km * 1000) / (km * 1000);
     const note =
@@ -686,9 +761,8 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
 // Compare — same start/distance/seed, regular vs. the selected preference
 // ---------------------------------------------------------------------------
 document.getElementById("compare").addEventListener("click", async () => {
-  const { lat, lon, km, seed, profile } = readForm();
-  const key = currentPref();
-  if (key === "none") {
+  const { lat, lon, km, seed } = readForm();
+  if (pref === "none") {
     setStatus("Escolha uma prioridade (verde ou sombra) para comparar com a rota normal.", "warn");
     return;
   }
@@ -699,11 +773,10 @@ document.getElementById("compare").addEventListener("click", async () => {
 
   try {
     // Pick the seed whose regular loop is closest to the target, then run the
-    // preference profile on that SAME seed — faithful distance and a fair
-    // head-to-head (both start from the same heading).
-    const best = await generateFaithful(lat, lon, km, seed, "foot");
+    // preference on that SAME seed — faithful distance and a fair head-to-head.
+    const best = await generateFaithful(lat, lon, km, seed, { profile: "foot", customModel: null });
     const regular = best.response;
-    const preferred = await generateRoute(lat, lon, km, best.seed, profile);
+    const preferred = await generateRoute(lat, lon, km, best.seed, routingSpec());
 
     // Slate dashed = regular; solid green = preference-aware (on top)
     const regCoords = regular.paths[0].points.coordinates.map((c) => [c[0], c[1]]);
@@ -716,7 +789,7 @@ document.getElementById("compare").addEventListener("click", async () => {
     drawRoute(preferred);
 
     const fc = prefCollection();
-    const metric = PREF_LABELS[key];
+    const metric = prefLabel();
     const fReg = fractionIn(regCoords, fc);
     const fPref = fractionIn(
       preferred.paths[0].points.coordinates.map((c) => [c[0], c[1]]),
@@ -743,3 +816,16 @@ document.getElementById("compare").addEventListener("click", async () => {
 // Initial UI state
 setStart(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
 updateSunArc();
+
+// Load the baked-hours manifest: which hours exist + their real sun az/el.
+fetch("/shade-index.json")
+  .then((r) => r.json())
+  .then((idx) => {
+    if (!Array.isArray(idx.hours) || !idx.hours.length) return;
+    BAKED_HOURS = idx.hours.map((e) => e.h).sort((a, b) => a - b);
+    for (const e of idx.hours) SUN_BY_HOUR[e.h] = { az: e.az, el: e.el };
+    sunSlider.min = String(BAKED_HOURS[0]);
+    sunSlider.max = String(BAKED_HOURS[BAKED_HOURS.length - 1]);
+    updateSunArc();
+  })
+  .catch(() => {}); // falls back to the built-in 9/12/15

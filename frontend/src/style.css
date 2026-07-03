@@ -237,6 +237,7 @@ body {
 
 #sun-arc svg { width: 100%; height: auto; display: block; }
 
+.arc-sky { transition: opacity 0.4s ease; }
 .arc-horizon {
   stroke: var(--hairline);
   stroke-width: 1.5;
@@ -244,40 +245,51 @@ body {
   fill: none;
 }
 .arc-path {
-  stroke: rgba(20, 32, 26, 0.22);
+  stroke: rgba(20, 32, 26, 0.18);
   stroke-width: 1.5;
   stroke-dasharray: 1 5;
   stroke-linecap: round;
   fill: none;
 }
-.arc-tick circle { fill: var(--ink-faint); }
 
-#sun-dot { transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
-#sun-dot circle:first-child { fill: var(--sun); opacity: 0.28; }
-#sun-dot .sun-core { fill: var(--sun); transition: fill 0.5s ease; }
+/* Sun dot follows the slider live — no CSS transition on transform (JS drives
+   it every frame while dragging); only the color eases. */
+#sun-dot circle:first-child { fill: var(--sun); opacity: 0.3; }
+#sun-dot .sun-core { fill: var(--sun); transition: fill 0.4s ease; }
 
-.hour-chips {
-  display: flex;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.hour {
-  flex: 1;
-  padding: 7px 0;
-  font: 600 13px var(--sans);
-  color: var(--ink-soft);
-  background: var(--paper-solid);
-  border: 1px solid var(--hairline);
+/* Range slider styled as the day timeline */
+#sun-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  margin: 6px 0 0;
   border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sun) 55%, #fff) 0%,
+    var(--sun) 50%,
+    var(--shade) 100%
+  );
   cursor: pointer;
-  transition: all 0.15s ease;
 }
-.hour.is-active {
-  color: var(--ink);
-  border-color: var(--sun);
-  background: color-mix(in srgb, var(--sun) 18%, var(--paper-solid));
-  font-weight: 700;
+#sun-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--sun);
+  border: 3px solid var(--paper-solid);
+  box-shadow: 0 2px 6px rgba(16, 26, 20, 0.3);
+  transition: background 0.4s ease;
+}
+#sun-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--paper-solid);
+  border-radius: 50%;
+  background: var(--sun);
+  box-shadow: 0 2px 6px rgba(16, 26, 20, 0.3);
 }
 
 .sun-info {

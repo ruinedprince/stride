@@ -70,8 +70,10 @@ pip install shapely
 # script streams one Brazil quadkey tile and filters to the bbox)
 python backend/scripts/fetch_ms_buildings.py
 
-# Shadow polygons + custom models for chosen local hours
-python backend/scripts/build_shade_areas.py --date 2026-07-03 --hours 9,12,15
+# Shadow polygons + custom models for every daylight hour (also writes
+# shade-index.json — the manifest the sun slider reads). Hours whose sun is
+# below 8° are skipped automatically.
+python backend/scripts/build_shade_areas.py --date 2026-07-03 --hours 8,9,10,11,12,13,14,15,16
 
 # 3D building blocks for the map (same footprints the shadows use, so blocks
 # and shade line up). Writes frontend/public/buildings.geojson (committed).
@@ -149,7 +151,8 @@ frontend/
                              loop-closure check, SAMPLE fallback
   src/style.css
   public/green-areas.geojson generated green polygons for display
-  public/shade-*.geojson     generated per-hour shadow maps for display
+  public/shade-*.geojson     generated per-hour shadow maps (display + routing)
+  public/shade-index.json    manifest: baked hours + sun position, read by the slider
   public/buildings.geojson   generated 3D building footprints (same as shadows)
   public/sample-route.json   offline fallback, clearly labeled SAMPLE
 ```
@@ -237,8 +240,18 @@ Pipeline (`backend/scripts/build_shade_areas.py`, needs shapely):
 3. **Shadow casting** — each obstacle casts `height / tan(elevation)` meters of shadow
    away from the sun (footprint + translated footprint + a quad per edge), ~208k pieces
    unioned with shapely, simplified, largest 250 polygons kept per hour.
-4. **Routing** — profile `foot_shade_<H>`: edges not touching that hour's shade get
-   `priority × 0.3` (the multiplier tuned in Phase 1). One custom model per hour preset.
+4. **Routing** — edges not touching that hour's shade get `priority × 0.3` (the
+   multiplier tuned in Phase 1), via a **per-request custom model** posted in the route
+   body. The frontend builds that model in JS from the display geojson itself (verified
+   to route identically to the committed `shade_<H>.json`), so any hour routes with no
+   server restart and no per-hour profiles.
+
+**Dynamic time-of-day.** Daylight is baked hour by hour (8–16 h here; sub-8° hours are
+skipped) and the sun becomes a **continuous slider**. Dragging it moves the sun and the
+3D sunlight and re-tints the UI *continuously* (azimuth/elevation interpolated between
+the two bracketing baked hours, via `shade-index.json`), while the shadow polygons and
+routing snap to the nearest baked hour. Arbitrary dates would need either a denser bake
+per date or an on-demand compute service — a documented next step, not in this build.
 
 Honest limitations, on purpose:
 

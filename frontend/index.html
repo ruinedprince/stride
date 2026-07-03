@@ -66,19 +66,23 @@
             </div>
 
             <div id="sun-arc" hidden>
-              <svg viewBox="0 0 200 104" aria-hidden="true">
+              <svg viewBox="0 0 200 100" aria-hidden="true">
+                <defs>
+                  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="var(--sun)" stop-opacity="0.22" />
+                    <stop offset="1" stop-color="var(--shade)" stop-opacity="0.05" />
+                  </linearGradient>
+                </defs>
+                <path class="arc-sky" d="M20 92 A82 82 0 0 1 180 92 Z" fill="url(#sky)" />
                 <path class="arc-horizon" d="M12 92 H188" />
-                <path class="arc-path" d="M20 92 A80 80 0 0 1 180 92" />
-                <g class="arc-tick" transform="translate(30.7,52)"><circle r="2" /></g>
-                <g class="arc-tick" transform="translate(100,12)"><circle r="2" /></g>
-                <g class="arc-tick" transform="translate(169.3,52)"><circle r="2" /></g>
-                <g id="sun-dot"><circle r="7" /><circle class="sun-core" r="4" /></g>
+                <path id="sun-track" class="arc-path" d="M20 92 Q100 -6 180 92" />
+                <g id="sun-dot"><circle r="8" /><circle class="sun-core" r="4.5" /></g>
               </svg>
-              <div class="hour-chips" role="radiogroup" aria-label="Hora da caminhada">
-                <button type="button" class="hour" data-hour="9" role="radio" aria-checked="false">9h</button>
-                <button type="button" class="hour" data-hour="12" role="radio" aria-checked="false">12h</button>
-                <button type="button" class="hour is-active" data-hour="15" role="radio" aria-checked="true">15h</button>
-              </div>
+              <input
+                type="range" id="sun-slider"
+                min="7" max="17" step="0.25" value="15"
+                aria-label="Hora da caminhada"
+              />
               <p class="sun-info" id="sun-info"></p>
             </div>
           </section>

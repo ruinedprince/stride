@@ -355,6 +355,33 @@ def main():
         polys, az, el = build_hour(*obstacles, date, hour)
         if polys:
             write_outputs(polys, hour, date, az, el)
+    write_index(date)
+
+
+def write_index(date):
+    """Manifest of every baked hour + its sun position — the frontend reads this
+    to know which hours exist and to interpolate the sun between them."""
+    import glob, re
+
+    pub = BASE.parent / "frontend" / "public"
+    hours = []
+    for f in sorted(glob.glob(str(pub / "shade-*.geojson"))):
+        m = re.search(r"shade-(\d+)\.geojson$", f)
+        props = json.loads(Path(f).read_text(encoding="utf-8")).get("properties", {})
+        if m and props.get("sun_azimuth_deg") is not None:
+            hours.append(
+                {
+                    "h": int(m.group(1)),
+                    "az": round(props["sun_azimuth_deg"], 1),
+                    "el": round(props["sun_elevation_deg"], 1),
+                }
+            )
+    hours.sort(key=lambda e: e["h"])
+    (pub / "shade-index.json").write_text(
+        json.dumps({"date": date.isoformat(), "hours": hours}, indent=1),
+        encoding="utf-8",
+    )
+    print(f"wrote shade-index.json ({len(hours)} hours: {[e['h'] for e in hours]})")
 
 
 if __name__ == "__main__":

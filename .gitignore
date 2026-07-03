@@ -14,5 +14,10 @@ backend/graph-cache/
 .DS_Store
 Thumbs.db
 
+# Shade custom models are generated per-hour but consumed per-request from the
+# display geojson (frontend builds the model in JS), so they don't need to be
+# versioned. green.json IS referenced by the foot_green profile — keep it.
+backend/custom_models/shade_*.json
+
 # Python
 __pycache__/
