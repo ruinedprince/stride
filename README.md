@@ -75,9 +75,13 @@ python backend/scripts/fetch_ms_buildings.py
 # below 8° are skipped automatically.
 python backend/scripts/build_shade_areas.py --date 2026-07-03 --hours 8,9,10,11,12,13,14,15,16
 
-# 3D building blocks for the map (same footprints the shadows use, so blocks
-# and shade line up). Writes frontend/public/buildings.geojson (committed).
+# 3D buildings → vector tiles. Extract every footprint in the bbox to NDJSON,
+# tile it (geojson-vt + vt-pbf), then pack into frontend/public/buildings.pmtiles.
+# No Docker/tippecanoe needed.
 python backend/scripts/build_buildings_3d.py
+npm install --prefix backend/scripts/tiler
+node backend/scripts/tiler/tile.js
+python backend/scripts/tiler/pack_pmtiles.py   # needs: pip install pmtiles
 ```
 
 ### 2. Start the routing backend
@@ -175,15 +179,27 @@ regular profile, then runs the preference on that seed — faithful *and* a fair
 head-to-head. **Surpreenda-me** skips best-of for a single random loop. If even the best
 of 6 is >20 % off, the UI says so plainly.
 
-## 3D buildings
+## 3D buildings (vector tiles, streamed per viewport)
 
-The map extrudes `frontend/public/buildings.geojson` — the **same** OSM + Microsoft ML
-footprints the shadow pipeline uses (`build_buildings_3d.py`, ~20 k blocks within 3.2 km,
-heights from the same model). Earlier the map extruded OpenMapTiles' own `building` layer
-(~2.7 k OSM buildings), which is why shadows appeared with no block under them; sharing one
-source fixes the mismatch. Heights carry a constant ×2.6 vertical exaggeration for
-presence under the tilted camera — relative heights stay honest (a church still towers
-over a house), and the 3D lighting follows the chosen hour's real sun azimuth/elevation.
+The map extrudes building footprints from **`frontend/public/buildings.pmtiles`** — a single
+[PMTiles](https://github.com/protomaps/PMTiles) archive of vector tiles (z13–16). MapLibre
+streams only the tiles in view via HTTP range requests, so panning to any neighbourhood
+loads its blocks on demand ("video-game" loading) instead of downloading one big file.
+
+The footprints are the **same** OSM + Microsoft ML buildings the shadow pipeline uses
+(heights from the same model), now covering the **whole bbox** (~97 k buildings) rather
+than a 3.2 km radius — earlier, areas a few km from the centre had no blocks at all.
+
+Pipeline, all keyless and Docker-free:
+1. `build_buildings_3d.py` → `backend/data/buildings.ndjson` (every footprint in the bbox).
+2. `tiler/tile.js` ([geojson-vt](https://github.com/mapbox/geojson-vt) +
+   [vt-pbf](https://github.com/mapbox/vt-pbf)) → MVT `.pbf` tiles.
+3. `tiler/pack_pmtiles.py` (the `pmtiles` writer) → `buildings.pmtiles` (~5 MB, replaces the
+   old 5 MB GeoJSON but with full coverage *and* viewport streaming).
+
+Heights carry a constant ×2.6 vertical exaggeration for presence under the tilted camera —
+relative heights stay honest (a church still towers over a house) — and the 3D lighting
+follows the chosen hour's real sun azimuth/elevation.
 
 ## Why flexible mode (no CH)?
 

@@ -1,14 +1,13 @@
-"""Phase 2b — export building footprints for the 3D map layer.
+"""Phase 4b — export ALL building footprints in the bbox as NDJSON for tiling.
 
-The map used to extrude OpenMapTiles' `building` layer (OSM-derived, ~2.7k
-buildings here), while shadows are cast from 96k Microsoft ML footprints. Two
-different building sets → shadows without a block under them and very few
-blocks on the map. This script exports the SAME footprints the shadow pipeline
-uses (OSM + Microsoft ML, same heights) so the 3D blocks and the shadows line
-up and there are far more of them.
+Earlier this wrote a single ~5 MB buildings.geojson limited to 3.2 km around the
+centre, so neighbourhoods farther out had no 3D blocks and the whole file loaded
+at once. Now it exports every footprint in the bbox (OSM + Microsoft ML, same
+height model as the shadow pipeline) as line-delimited GeoJSON, which
+`tile_buildings.sh` turns into vector tiles (buildings.pmtiles) that MapLibre
+streams per viewport.
 
-Output: frontend/public/buildings.geojson — one Polygon feature per building
-with a `h` property (height in meters, same model as build_shade_areas.py).
+Output: backend/data/buildings.ndjson (one Feature per line, `h` = height in m).
 
 Stdlib only. Run after fetch_ms_buildings.py:
     python backend/scripts/build_buildings_3d.py
@@ -22,18 +21,17 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent.parent  # backend/
 OSM_FILE = BASE / "data" / "guaratingueta.osm"
 MS_FILE = BASE / "data" / "ms_buildings.geojsonl"
-OUT = BASE.parent / "frontend" / "public" / "buildings.geojson"
+OUT = BASE / "data" / "buildings.ndjson"
 
-CENTER = (-45.1927, -22.8164)  # lon, lat
-RADIUS_M = 3200  # a touch under the shade working radius; covers demo loops
+# Full project bbox (lon_min, lat_min, lon_max, lat_max) — same as the OSM extract.
+BBOX = (-45.30, -22.92, -45.08, -22.70)
+CENTER_LAT = -22.8164
+MX = 111_320 * math.cos(math.radians(CENTER_LAT))
+MY = 110_540
 MIN_AREA_M2 = 12
 COORD_PRECISION = 6
 
-MX = 111_320 * math.cos(math.radians(CENTER[1]))
-MY = 110_540
-
-# Height model — kept identical to build_shade_areas.py so blocks and shadows
-# agree on how tall each building is.
+# Height model — identical to build_shade_areas.py so blocks and shadows agree.
 BUILDING_HEIGHT_DEFAULTS = {
     "church": 12.0, "cathedral": 15.0, "apartments": 9.0, "industrial": 5.5,
     "warehouse": 5.5, "commercial": 5.5, "retail": 5.0, "school": 5.0,
@@ -42,8 +40,8 @@ BUILDING_HEIGHT_DEFAULTS = {
 DEFAULT_BUILDING_HEIGHT = 4.0
 
 
-def near_center(lon, lat):
-    return math.hypot((lon - CENTER[0]) * MX, (lat - CENTER[1]) * MY) <= RADIUS_M
+def in_bbox(lon, lat):
+    return BBOX[0] <= lon <= BBOX[2] and BBOX[1] <= lat <= BBOX[3]
 
 
 def ring_area_m2(ring):
@@ -75,10 +73,18 @@ def q(ring):
     return [[round(x, COORD_PRECISION), round(y, COORD_PRECISION)] for x, y in ring]
 
 
+def feature(ring, height):
+    return {
+        "type": "Feature",
+        "properties": {"h": round(height, 1)},
+        "geometry": {"type": "Polygon", "coordinates": [q(ring)]},
+    }
+
+
 def main():
     nodes = {}
-    features = []
-    osm_centroids = []  # to skip MS duplicates near an OSM building
+    osm_features = []
+    osm_centroids = []
 
     for _, elem in ET.iterparse(OSM_FILE, events=("end",)):
         if elem.tag == "node":
@@ -91,19 +97,11 @@ def main():
                 if len(pts) >= 4 and refs[0] == refs[-1]:
                     cx = sum(p[0] for p in pts) / len(pts)
                     cy = sum(p[1] for p in pts) / len(pts)
-                    if near_center(cx, cy) and ring_area_m2(pts) >= MIN_AREA_M2:
+                    if in_bbox(cx, cy) and ring_area_m2(pts) >= MIN_AREA_M2:
                         osm_centroids.append((cx, cy))
-                        features.append(
-                            {
-                                "type": "Feature",
-                                "properties": {"h": round(parse_height(tags), 1)},
-                                "geometry": {"type": "Polygon", "coordinates": [q(pts)]},
-                            }
-                        )
+                        osm_features.append(feature(pts, parse_height(tags)))
         if elem.tag in ("node", "way", "relation"):
             elem.clear()
-
-    n_osm = len(features)
 
     # Grid index of OSM centroids for fast dedup (cell ~30 m)
     cell = 0.0003
@@ -120,33 +118,28 @@ def main():
                         return True
         return False
 
-    if MS_FILE.exists():
-        with open(MS_FILE, encoding="utf-8") as fh:
-            for line in fh:
-                feat = json.loads(line)
-                ring = feat["geometry"]["coordinates"][0]
-                cx = sum(p[0] for p in ring) / len(ring)
-                cy = sum(p[1] for p in ring) / len(ring)
-                if not near_center(cx, cy) or ring_area_m2(ring) < MIN_AREA_M2:
-                    continue
-                if near_osm(cx, cy):
-                    continue
-                h = feat.get("properties", {}).get("height", -1)
-                features.append(
-                    {
-                        "type": "Feature",
-                        "properties": {"h": round(h if h and h > 0 else DEFAULT_BUILDING_HEIGHT, 1)},
-                        "geometry": {"type": "Polygon", "coordinates": [q(ring)]},
-                    }
-                )
+    n_ms = 0
+    with open(OUT, "w", encoding="utf-8") as out:
+        for f in osm_features:
+            out.write(json.dumps(f) + "\n")
+        if MS_FILE.exists():
+            with open(MS_FILE, encoding="utf-8") as fh:
+                for line in fh:
+                    feat = json.loads(line)
+                    ring = feat["geometry"]["coordinates"][0]
+                    cx = sum(p[0] for p in ring) / len(ring)
+                    cy = sum(p[1] for p in ring) / len(ring)
+                    if not in_bbox(cx, cy) or ring_area_m2(ring) < MIN_AREA_M2:
+                        continue
+                    if near_osm(cx, cy):
+                        continue
+                    h = feat.get("properties", {}).get("height", -1)
+                    out.write(json.dumps(feature(ring, h if h and h > 0 else DEFAULT_BUILDING_HEIGHT)) + "\n")
+                    n_ms += 1
 
-    OUT.write_text(
-        json.dumps({"type": "FeatureCollection", "features": features}),
-        encoding="utf-8",
-    )
     size_mb = OUT.stat().st_size / 1048576
-    print(f"{len(features)} buildings ({n_osm} OSM + {len(features)-n_osm} MS) "
-          f"within {RADIUS_M/1000:.1f} km -> {OUT.name} ({size_mb:.1f} MB)")
+    print(f"{len(osm_features) + n_ms} buildings ({len(osm_features)} OSM + {n_ms} MS) "
+          f"in bbox -> {OUT.name} ({size_mb:.1f} MB). Next: scripts/tile_buildings.sh")
 
 
 if __name__ == "__main__":

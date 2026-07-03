@@ -1,5 +1,10 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { Protocol } from "pmtiles";
+
+// Register the pmtiles:// protocol so MapLibre can stream building vector tiles
+// per viewport from a single archive (frontend/public/buildings.pmtiles).
+maplibregl.addProtocol("pmtiles", new Protocol().tile);
 
 // ---------------------------------------------------------------------------
 // Config
@@ -46,6 +51,7 @@ const map = new maplibregl.Map({
   attributionControl: { compact: true },
 });
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+if (import.meta.env?.DEV) window.__map = map; // dev-only handle for debugging
 
 let startMarker = null;
 let endMarker = null;
@@ -68,22 +74,21 @@ function ensureStartMarker(lon, lat) {
 // towers over a house) while giving the city real presence.
 const HEIGHT_EXAGGERATION = 2.6;
 
-async function add3dBuildings() {
-  // Hide OpenMapTiles' own sparse building layer — we replace it with the same
-  // footprints that cast the shadows, so blocks and shade line up.
+function add3dBuildings() {
+  // Hide OpenMapTiles' own sparse building layer — we replace it with the full
+  // bbox footprints (OSM + Microsoft ML) that cast the shadows.
   for (const layer of map.getStyle().layers) {
     if (layer.id.includes("building")) {
       map.setLayoutProperty(layer.id, "visibility", "none");
     }
   }
 
-  let buildings;
-  try {
-    buildings = await fetch("/buildings.geojson").then((r) => r.json());
-  } catch {
-    return; // routing still works without the 3D layer
-  }
-  map.addSource("buildings", { type: "geojson", data: buildings });
+  // Vector tiles streamed per viewport from a single PMTiles archive — the whole
+  // city is covered, but only the tiles in view are fetched.
+  map.addSource("buildings", {
+    type: "vector",
+    url: `pmtiles://${location.origin}/buildings.pmtiles`,
+  });
 
   const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
   map.addLayer(
@@ -91,7 +96,8 @@ async function add3dBuildings() {
       id: "stride-3d-buildings",
       type: "fill-extrusion",
       source: "buildings",
-      minzoom: 12.5,
+      "source-layer": "buildings",
+      minzoom: 13,
       paint: {
         // Warm-to-cool by height so volume reads even in flat afternoon light
         "fill-extrusion-color": [

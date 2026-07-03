@@ -24,3 +24,8 @@ __pycache__/
 
 # GraphHopper elevation tiles (downloaded)
 backend/elevation-cache/
+
+# Building tiling intermediates — the pipeline output (buildings.pmtiles) is
+# versioned, but these inputs/temporaries are regenerated.
+backend/data/buildings.ndjson
+backend/scripts/tiler/_tiles/
