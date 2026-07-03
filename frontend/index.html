@@ -1,63 +1,113 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Stride — walking route generator (Phase 0)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#FCFBF7" />
+    <title>Stride — caminhadas geradas</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 5a11 11 0 1 0 11 11' fill='none' stroke='%231E7A4A' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='5' r='4' fill='%23F2A93B'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900&family=Spline+Sans+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
     <div id="app">
+      <div id="map" aria-label="Mapa"></div>
+
       <aside id="panel">
-        <h1>Stride</h1>
-        <p class="tagline">Phase 1 — greenery-aware loop generator (Guaratinguetá-SP)</p>
+        <div class="sheet-handle" aria-hidden="true"></div>
+
+        <header class="brand">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M16 5a11 11 0 1 0 11 11" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" />
+            <circle class="brand-sun" cx="16" cy="5" r="3.6" />
+          </svg>
+          <div>
+            <h1>Stride</h1>
+            <p class="tagline">caminhadas geradas</p>
+          </div>
+        </header>
 
         <form id="route-form">
-          <label>
-            Start latitude
-            <input type="number" id="lat" step="any" value="-22.8164" required />
-          </label>
-          <label>
-            Start longitude
-            <input type="number" id="lon" step="any" value="-45.1927" required />
-          </label>
-          <label>
-            Distance (km)
-            <input type="number" id="distance" min="1" max="30" step="0.5" value="6" required />
-          </label>
-          <div class="presets">
-            <button type="button" class="preset" data-km="3">3 km</button>
-            <button type="button" class="preset" data-km="6">6 km</button>
-            <button type="button" class="preset" data-km="10">10 km</button>
-          </div>
-          <label>
-            Variant (seed)
-            <input type="number" id="seed" min="0" step="1" value="0" />
-          </label>
-          <label>
-            Route preference
-            <select id="preference">
-              <option value="none">None — regular walking route</option>
-              <option value="green">🌳 Prefer green areas</option>
-              <option value="shade_9">⛅ Prefer shade at 9 h</option>
-              <option value="shade_12">⛅ Prefer shade at 12 h</option>
-              <option value="shade_15">⛅ Prefer shade at 15 h</option>
-            </select>
-          </label>
-          <button type="submit" id="generate">Generate route</button>
-          <button type="button" id="compare">Compare vs regular</button>
+          <section class="field">
+            <span class="field-label">Partida</span>
+            <div class="start-row">
+              <button type="button" id="locate">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 3h-2.07A7 7 0 0 0 13 5.07V3h-2v2.07A7 7 0 0 0 5.07 11H3v2h2.07A7 7 0 0 0 11 18.93V21h2v-2.07A7 7 0 0 0 18.93 13H21v-2Z" fill="currentColor"/></svg>
+                Minha localização
+              </button>
+              <span class="coords" id="coords">−22,8164 · −45,1927</span>
+            </div>
+            <p class="hint">ou toque no mapa para mover a partida</p>
+            <input type="hidden" id="lat" value="-22.8164" />
+            <input type="hidden" id="lon" value="-45.1927" />
+          </section>
+
+          <section class="field">
+            <span class="field-label">Distância</span>
+            <div class="chips" id="distance-chips">
+              <button type="button" class="chip" data-km="3">3 km</button>
+              <button type="button" class="chip is-active" data-km="6">6 km</button>
+              <button type="button" class="chip" data-km="10">10 km</button>
+              <input id="distance" type="number" min="1" max="30" step="0.5" value="6" aria-label="Distância em km" />
+            </div>
+          </section>
+
+          <section class="field">
+            <span class="field-label">Prioridade do caminho</span>
+            <div class="segment" id="pref-segment" role="radiogroup" aria-label="Prioridade do caminho">
+              <button type="button" class="seg is-active" data-pref="none" role="radio" aria-checked="true">Normal</button>
+              <button type="button" class="seg" data-pref="green" role="radio" aria-checked="false">🌳 Verde</button>
+              <button type="button" class="seg" data-pref="shade" role="radio" aria-checked="false">⛅ Sombra</button>
+            </div>
+
+            <div id="sun-arc" hidden>
+              <svg viewBox="0 0 200 104" aria-hidden="true">
+                <path class="arc-horizon" d="M12 92 H188" />
+                <path class="arc-path" d="M20 92 A80 80 0 0 1 180 92" />
+                <g class="arc-tick" transform="translate(30.7,52)"><circle r="2" /></g>
+                <g class="arc-tick" transform="translate(100,12)"><circle r="2" /></g>
+                <g class="arc-tick" transform="translate(169.3,52)"><circle r="2" /></g>
+                <g id="sun-dot"><circle r="7" /><circle class="sun-core" r="4" /></g>
+              </svg>
+              <div class="hour-chips" role="radiogroup" aria-label="Hora da caminhada">
+                <button type="button" class="hour" data-hour="9" role="radio" aria-checked="false">9h</button>
+                <button type="button" class="hour" data-hour="12" role="radio" aria-checked="false">12h</button>
+                <button type="button" class="hour is-active" data-hour="15" role="radio" aria-checked="true">15h</button>
+              </div>
+              <p class="sun-info" id="sun-info"></p>
+            </div>
+          </section>
+
+          <section class="field field-row">
+            <div>
+              <span class="field-label">Variação</span>
+              <input id="seed" type="number" min="0" step="1" value="0" aria-label="Semente da variação" />
+            </div>
+            <button type="button" id="shuffle" title="Surpreenda-me — nova variação">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 4h4v4h-2V7.4l-3.9 3.9-1.4-1.4L17.6 6H15V4h2ZM4 5h5.2l9.4 12H21v2h-4.2L7.4 7H4V5Zm11.7 9.9 1.4-1.4L21 17.4V15h2v6h-6v-2h2.6l-3.9-4.1ZM4 17h3.3l2.2-2.8 1.3 1.7L8.3 19H4v-2Z" fill="currentColor"/></svg>
+              Surpreenda-me
+            </button>
+          </section>
+
+          <button type="submit" id="generate">Gerar caminhada</button>
+          <button type="button" id="compare">Comparar com a rota normal</button>
         </form>
 
-        <div id="status"></div>
+        <div id="status" role="status" aria-live="polite"></div>
+
         <dl id="stats" hidden>
-          <div><dt>Distance</dt><dd id="stat-distance">–</dd></div>
-          <div><dt>Duration</dt><dd id="stat-duration">–</dd></div>
-          <div><dt>Closes the loop</dt><dd id="stat-loop">–</dd></div>
-          <div><dt>In green areas</dt><dd id="stat-green">–</dd></div>
-          <div><dt>In shade</dt><dd id="stat-shade">–</dd></div>
+          <div class="stat"><dt>Distância</dt><dd id="stat-distance">–</dd></div>
+          <div class="stat"><dt>Duração</dt><dd id="stat-duration">–</dd></div>
+          <div class="stat"><dt>No verde</dt><dd id="stat-green">–</dd></div>
+          <div class="stat"><dt>Na sombra</dt><dd id="stat-shade">–</dd></div>
+          <div class="loop-pill" id="stat-loop">–</div>
         </dl>
       </aside>
-      <div id="map"></div>
     </div>
     <script type="module" src="./src/main.js"></script>
   </body>

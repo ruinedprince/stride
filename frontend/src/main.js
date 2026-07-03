@@ -6,38 +6,85 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // ---------------------------------------------------------------------------
 const GRAPHHOPPER_URL = "http://localhost:8989/route";
 const DEFAULT_CENTER = { lat: -22.8164, lon: -45.1927 }; // Guaratinguetá-SP center
+const BBOX = { lonMin: -45.3, latMin: -22.92, lonMax: -45.08, latMax: -22.7 };
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Sun position per preset hour (2026-07-03) — refreshed from the shade
+// geojson properties when loaded, these are the baked fallbacks.
+const SUN = {
+  9: { az: 47.7, el: 25.8 },
+  12: { az: 1.6, el: 44.2 },
+  15: { az: 314.1, el: 27.6 },
+};
 
 // ---------------------------------------------------------------------------
-// Map setup — OSM raster tiles (fully open, no API key)
+// Map — OpenFreeMap vector tiles (open, no API key), tilted 3D camera
 // ---------------------------------------------------------------------------
 const map = new maplibregl.Map({
   container: "map",
-  style: {
-    version: 8,
-    sources: {
-      osm: {
-        type: "raster",
-        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-        tileSize: 256,
-        attribution: "&copy; OpenStreetMap contributors",
-      },
-    },
-    layers: [{ id: "osm", type: "raster", source: "osm" }],
-  },
+  style: "https://tiles.openfreemap.org/styles/positron",
   center: [DEFAULT_CENTER.lon, DEFAULT_CENTER.lat],
-  zoom: 14,
+  zoom: 13.2,
+  pitch: 0,
+  attributionControl: { compact: true },
 });
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
 
 let startMarker = null;
 let endMarker = null;
-
-// Green areas (Phase 1) — polygons extracted from OSM by
-// backend/scripts/build_green_areas.py, shown as an overlay and used to
-// compute the "% of route in green" stat.
 let greenAreas = null;
+const shadeCache = {}; // hour -> geojson FeatureCollection
+
+function ensureStartMarker(lon, lat) {
+  if (!startMarker) {
+    const el = document.createElement("div");
+    el.className = "start-marker";
+    startMarker = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
+  } else {
+    startMarker.setLngLat([lon, lat]);
+  }
+}
+
+function add3dBuildings() {
+  // The positron style ships openmaptiles building footprints with
+  // render_height — extrude them for the 3D city look.
+  const style = map.getStyle();
+  const vecId = Object.keys(style.sources).find((k) => style.sources[k].type === "vector");
+  if (!vecId) return;
+  const firstSymbol = style.layers.find((l) => l.type === "symbol")?.id;
+  map.addLayer(
+    {
+      id: "stride-3d-buildings",
+      type: "fill-extrusion",
+      source: vecId,
+      "source-layer": "building",
+      minzoom: 13,
+      paint: {
+        "fill-extrusion-color": "#e9e5da",
+        "fill-extrusion-height": ["coalesce", ["get", "render_height"], 5],
+        "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
+        "fill-extrusion-opacity": 0.72,
+      },
+    },
+    firstSymbol
+  );
+}
+
+function setSunLight(hour) {
+  // Light the 3D buildings from the real sun direction of the chosen hour.
+  if (hour && SUN[hour]) {
+    const { az, el } = SUN[hour];
+    map.setLight({ anchor: "map", position: [1.3, az, 90 - el], intensity: 0.35 });
+  } else {
+    map.setLight({ anchor: "viewport", position: [1.15, 210, 30], intensity: 0.25 });
+  }
+}
 
 map.on("load", async () => {
-  // Green overlay goes first so routes draw on top of it.
+  add3dBuildings();
+  setSunLight(null);
+
+  // Green overlay (Phase 1)
   try {
     greenAreas = await fetch("/green-areas.geojson").then((r) => r.json());
     map.addSource("green-areas", { type: "geojson", data: greenAreas });
@@ -45,19 +92,21 @@ map.on("load", async () => {
       id: "green-fill",
       type: "fill",
       source: "green-areas",
+      layout: { visibility: "none" },
       paint: { "fill-color": "#2f9e44", "fill-opacity": 0.16 },
     });
     map.addLayer({
       id: "green-outline",
       type: "line",
       source: "green-areas",
+      layout: { visibility: "none" },
       paint: { "line-color": "#2f9e44", "line-opacity": 0.45, "line-width": 1 },
     });
   } catch {
     // Overlay is optional — routing still works without it.
   }
 
-  // Shade overlay (Phase 2) — polygons swapped per selected hour.
+  // Shade overlay (Phase 2) — polygons swapped per selected hour
   map.addSource("shade-areas", {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] },
@@ -66,16 +115,22 @@ map.on("load", async () => {
     id: "shade-fill",
     type: "fill",
     source: "shade-areas",
-    paint: { "fill-color": "#31456b", "fill-opacity": 0.28 },
+    layout: { visibility: "none" },
+    paint: {
+      "fill-color": "#31456b",
+      "fill-opacity": 0,
+      "fill-opacity-transition": { duration: REDUCED ? 0 : 450 },
+    },
   });
   map.addLayer({
     id: "shade-outline",
     type: "line",
     source: "shade-areas",
-    paint: { "line-color": "#31456b", "line-opacity": 0.4, "line-width": 0.8 },
+    layout: { visibility: "none" },
+    paint: { "line-color": "#31456b", "line-opacity": 0.35, "line-width": 0.8 },
   });
 
-  // Comparison route (regular foot profile) — gray, drawn under the main line.
+  // Comparison route (regular profile) — slate dashed, under the main line
   map.addSource("route-alt", {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] },
@@ -93,28 +148,40 @@ map.on("load", async () => {
     },
   });
 
+  // Main route — white casing + brand green line
   map.addSource("route", {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] },
+  });
+  map.addLayer({
+    id: "route-casing",
+    type: "line",
+    source: "route",
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.9 },
   });
   map.addLayer({
     id: "route-line",
     type: "line",
     source: "route",
     layout: { "line-join": "round", "line-cap": "round" },
-    paint: {
-      "line-color": "#256d46",
-      "line-width": 5,
-      "line-opacity": 0.85,
-    },
+    paint: { "line-color": "#1e7a4a", "line-width": 5, "line-opacity": 0.95 },
   });
+
+  ensureStartMarker(DEFAULT_CENTER.lon, DEFAULT_CENTER.lat);
+
+  // Cinematic intro — tilt into the 3D city
+  if (!REDUCED) {
+    map.easeTo({ pitch: 56, bearing: -18, zoom: 14.4, duration: 2400 });
+  } else {
+    map.jumpTo({ pitch: 45, zoom: 14.4 });
+  }
 });
 
 // Click on the map to move the start point
 map.on("click", (e) => {
-  document.getElementById("lat").value = e.lngLat.lat.toFixed(6);
-  document.getElementById("lon").value = e.lngLat.lng.toFixed(6);
-  setStatus("Start point moved. Click “Generate route”.", "");
+  setStart(e.lngLat.lat, e.lngLat.lng);
+  setStatus("Partida movida. Toque em <b>Gerar caminhada</b>.", "");
 });
 
 // ---------------------------------------------------------------------------
@@ -128,78 +195,127 @@ function setStatus(html, kind) {
   statusEl.innerHTML = html;
 }
 
+function fmtKm(meters) {
+  return `${(meters / 1000).toFixed(2).replace(".", ",")} km`;
+}
+
 function fmtDuration(ms) {
   const min = Math.round(ms / 60000);
   return min >= 60 ? `${Math.floor(min / 60)} h ${min % 60} min` : `${min} min`;
 }
 
+function setStart(lat, lon) {
+  document.getElementById("lat").value = lat.toFixed(6);
+  document.getElementById("lon").value = lon.toFixed(6);
+  document.getElementById("coords").textContent = `${lat.toFixed(4).replace(".", ",").replace("-", "−")} · ${lon
+    .toFixed(4)
+    .replace(".", ",")
+    .replace("-", "−")}`;
+  ensureStartMarker(lon, lat);
+}
+
 // ---------------------------------------------------------------------------
-// Route rendering
+// Route rendering — draw-in animation, stats, loop check
 // ---------------------------------------------------------------------------
+let drawToken = 0;
+
+function animateRoute(coords) {
+  const token = ++drawToken;
+  const src = map.getSource("route");
+  const setSlice = (upto) =>
+    src.setData({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: coords.slice(0, upto) },
+          properties: {},
+        },
+      ],
+    });
+
+  if (REDUCED || coords.length < 3) {
+    setSlice(coords.length);
+    return;
+  }
+  const t0 = performance.now();
+  const DUR = 1300;
+  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  function frame(now) {
+    if (token !== drawToken) return; // a newer route started drawing
+    const t = Math.min(1, (now - t0) / DUR);
+    setSlice(Math.max(2, Math.round(ease(t) * coords.length)));
+    if (t < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+function fitPadding() {
+  return window.innerWidth > 720
+    ? { left: 396, top: 84, right: 84, bottom: 84 }
+    : { left: 36, right: 36, top: 72, bottom: Math.round(window.innerHeight * 0.55) };
+}
+
 function drawRoute(ghResponse, { isSample = false } = {}) {
   const path = ghResponse.paths && ghResponse.paths[0];
   if (!path || !path.points || !path.points.coordinates) {
-    throw new Error("Response has no paths[0].points.coordinates (is points_encoded=false set?)");
+    throw new Error("Resposta sem paths[0].points.coordinates (points_encoded=false?)");
   }
   const coords = path.points.coordinates; // [lon, lat, (ele)]
+  const flat = coords.map((c) => [c[0], c[1]]);
 
-  map.getSource("route").setData({
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        geometry: { type: "LineString", coordinates: coords.map((c) => [c[0], c[1]]) },
-        properties: {},
-      },
-    ],
-  });
+  animateRoute(flat);
 
   const first = coords[0];
   const last = coords[coords.length - 1];
 
-  if (startMarker) startMarker.remove();
-  if (endMarker) endMarker.remove();
-  startMarker = new maplibregl.Marker({ color: "#256d46" })
-    .setLngLat([first[0], first[1]])
-    .setPopup(new maplibregl.Popup().setText("Start"))
-    .addTo(map);
-  endMarker = new maplibregl.Marker({ color: "#a3271f", scale: 0.8 })
-    .setLngLat([last[0], last[1]])
-    .setPopup(new maplibregl.Popup().setText("End"))
-    .addTo(map);
-
-  // Fit view to route
-  const bounds = coords.reduce(
-    (b, c) => b.extend([c[0], c[1]]),
-    new maplibregl.LngLatBounds([first[0], first[1]], [first[0], first[1]])
-  );
-  map.fitBounds(bounds, { padding: 60 });
-
-  // Loop check: distance between first and last coordinate (meters, haversine)
+  // Loop check: haversine gap between first and last coordinate
   const gapMeters = haversine(first[1], first[0], last[1], last[0]);
   const closes = gapMeters < 30;
 
-  statsEl.hidden = false;
-  document.getElementById("stat-distance").textContent = `${(path.distance / 1000).toFixed(2)} km`;
-  document.getElementById("stat-duration").textContent = fmtDuration(path.time);
-  document.getElementById("stat-loop").textContent = closes
-    ? `yes (gap ${gapMeters.toFixed(1)} m)`
-    : `NO — gap ${gapMeters.toFixed(1)} m`;
+  ensureStartMarker(first[0], first[1]);
+  if (endMarker) {
+    endMarker.remove();
+    endMarker = null;
+  }
+  if (!closes) {
+    endMarker = new maplibregl.Marker({ color: "#b3402f", scale: 0.8 })
+      .setLngLat([last[0], last[1]])
+      .addTo(map);
+  }
 
-  const flat = coords.map((c) => [c[0], c[1]]);
-  const gf = greenFraction(flat);
+  const bounds = flat.reduce(
+    (b, c) => b.extend(c),
+    new maplibregl.LngLatBounds(flat[0], flat[0])
+  );
+  map.fitBounds(bounds, {
+    padding: fitPadding(),
+    maxZoom: 16.5,
+    duration: REDUCED ? 0 : 1400,
+  });
+
+  statsEl.hidden = false;
+  document.getElementById("stat-distance").textContent = fmtKm(path.distance);
+  document.getElementById("stat-duration").textContent = fmtDuration(path.time);
+
+  const loopEl = document.getElementById("stat-loop");
+  loopEl.textContent = closes
+    ? `✓ Volta ao início · desvio ${gapMeters.toFixed(1).replace(".", ",")} m`
+    : `✗ Não fecha o circuito · ${gapMeters.toFixed(0)} m de distância`;
+  loopEl.classList.toggle("is-open", !closes);
+
+  const gf = fractionIn(flat, greenAreas);
   document.getElementById("stat-green").textContent =
-    gf === null ? "–" : `${Math.round(gf * 100)}% of distance`;
+    gf === null ? "—" : `${Math.round(gf * 100)}%`;
   const sf = fractionIn(flat, activeShade());
   document.getElementById("stat-shade").textContent =
-    sf === null ? "–" : `${Math.round(sf * 100)}% of distance`;
+    sf === null ? "—" : `${Math.round(sf * 100)}%`;
 
   const sampleBadge = isSample
-    ? ' <span class="sample-badge">SAMPLE DATA — not live routing</span>'
+    ? ' <span class="sample-badge">AMOSTRA — não é rota real</span>'
     : "";
   setStatus(
-    (isSample ? "Rendered bundled sample response." : "Route generated by local GraphHopper.") +
-      sampleBadge,
+    (isSample ? "Exibindo resposta de exemplo." : "Caminhada gerada.") + sampleBadge,
     isSample ? "warn" : "ok"
   );
 }
@@ -216,10 +332,9 @@ function haversine(lat1, lon1, lat2, lon2) {
 }
 
 // ---------------------------------------------------------------------------
-// Greenery stats — fraction of route points inside any green polygon
+// Length-weighted overlap stats (validated methodology — see README)
 // ---------------------------------------------------------------------------
 function pointInRing(lon, lat, ring) {
-  // Ray casting
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const [xi, yi] = ring[i];
@@ -233,7 +348,6 @@ function pointInRing(lon, lat, ring) {
 
 function inCollection(lon, lat, fc) {
   if (!fc) return false;
-  // Precompute bounding boxes once per collection for cheap rejection
   if (!fc._bboxes) {
     fc._bboxes = fc.features.map((f) => {
       const ring = f.geometry.coordinates[0];
@@ -255,8 +369,6 @@ function inCollection(lon, lat, fc) {
   return false;
 }
 
-// Length-weighted: fraction of route DISTANCE whose segment midpoint is inside
-// the collection (point-count fractions are biased by uneven point density).
 function fractionIn(coords, fc) {
   if (!fc || coords.length < 2) return null;
   let total = 0, hit = 0;
@@ -268,10 +380,6 @@ function fractionIn(coords, fc) {
     if (inCollection((x1 + x2) / 2, (y1 + y2) / 2, fc)) hit += len;
   }
   return total ? hit / total : 0;
-}
-
-function greenFraction(coords) {
-  return fractionIn(coords, greenAreas);
 }
 
 // ---------------------------------------------------------------------------
@@ -298,16 +406,7 @@ async function generateRoute(lat, lon, distanceKm, seed, profile = "foot") {
 }
 
 // ---------------------------------------------------------------------------
-// Form wiring
-// ---------------------------------------------------------------------------
-document.querySelectorAll(".preset").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.getElementById("distance").value = btn.dataset.km;
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Route preference (Phase 1 green / Phase 2 shade)
+// Preference state (Phase 1 green / Phase 2 shade) + the sun arc
 // ---------------------------------------------------------------------------
 const PROFILES = {
   none: "foot",
@@ -317,47 +416,68 @@ const PROFILES = {
   shade_15: "foot_shade_15",
 };
 const PREF_LABELS = {
-  green: "green",
-  shade_9: "shade@9h",
-  shade_12: "shade@12h",
-  shade_15: "shade@15h",
+  green: "verde",
+  shade_9: "sombra 9h",
+  shade_12: "sombra 12h",
+  shade_15: "sombra 15h",
 };
-const shadeCache = {}; // hour -> geojson FeatureCollection
+
+let pref = "none"; // none | green | shade
+let hour = 15; // 9 | 12 | 15
 
 function currentPref() {
-  return document.getElementById("preference").value;
+  return pref === "shade" ? `shade_${hour}` : pref;
 }
 
 function activeShade() {
-  const pref = currentPref();
-  return pref.startsWith("shade_") ? shadeCache[pref.slice(6)] || null : null;
+  return pref === "shade" ? shadeCache[hour] || null : null;
 }
 
-// The collection the current preference optimizes for (used in compare stats)
 function prefCollection() {
-  const pref = currentPref();
   if (pref === "green") return greenAreas;
   return activeShade();
 }
 
+// Sun arc geometry: semicircle r=80 centered at (100, 92) in the SVG viewBox.
+// 9h rises on the left, 12h at the top, 15h descends right.
+const ARC_ANGLE = { 9: 150, 12: 90, 15: 30 };
+const CARDINAL = ["N", "NE", "L", "SE", "S", "SO", "O", "NO"];
+
+function updateSunArc() {
+  const a = (ARC_ANGLE[hour] * Math.PI) / 180;
+  const x = 100 + 80 * Math.cos(a);
+  const y = 92 - 80 * Math.sin(a);
+  document.getElementById("sun-dot").style.transform = `translate(${x}px, ${y}px)`;
+
+  const sun = SUN[hour];
+  const dir = CARDINAL[Math.round(sun.az / 45) % 8];
+  document.getElementById("sun-info").textContent =
+    `${hour}h · sol a ${dir}, ${Math.round(sun.el)}° acima do horizonte`;
+}
+
 async function applyPreferenceOverlays() {
-  const pref = currentPref();
-  const isShade = pref.startsWith("shade_");
-  if (isShade) {
-    const hour = pref.slice(6);
-    if (!shadeCache[hour]) {
-      try {
-        shadeCache[hour] = await fetch(`/shade-${hour}.geojson`).then((r) => r.json());
-      } catch {
-        shadeCache[hour] = null;
+  const isShade = pref === "shade";
+
+  if (isShade && !shadeCache[hour]) {
+    try {
+      const fc = await fetch(`/shade-${hour}.geojson`).then((r) => r.json());
+      shadeCache[hour] = fc;
+      // Refresh the baked sun constants from the pipeline's own output
+      if (fc.properties?.sun_azimuth_deg != null) {
+        SUN[hour] = { az: fc.properties.sun_azimuth_deg, el: fc.properties.sun_elevation_deg };
       }
+    } catch {
+      shadeCache[hour] = null;
     }
-    const src = map.getSource("shade-areas");
-    if (src && shadeCache[hour]) src.setData(shadeCache[hour]);
   }
+  if (isShade && shadeCache[hour]) {
+    const src = map.getSource("shade-areas");
+    if (src) src.setData(shadeCache[hour]);
+  }
+
   for (const layer of ["green-fill", "green-outline"]) {
     if (map.getLayer(layer)) {
-      map.setLayoutProperty(layer, "visibility", pref === "green" || pref === "none" ? "visible" : "none");
+      map.setLayoutProperty(layer, "visibility", pref === "green" ? "visible" : "none");
     }
   }
   for (const layer of ["shade-fill", "shade-outline"]) {
@@ -365,9 +485,89 @@ async function applyPreferenceOverlays() {
       map.setLayoutProperty(layer, "visibility", isShade ? "visible" : "none");
     }
   }
+  if (map.getLayer("shade-fill")) {
+    map.setPaintProperty("shade-fill", "fill-opacity", isShade ? 0.3 : 0);
+  }
+
+  // Ambient hour tint + sun-true 3D lighting
+  document.body.dataset.hour = isShade ? String(hour) : "";
+  setSunLight(isShade ? hour : null);
+  document.getElementById("sun-arc").hidden = !isShade;
+  if (isShade) updateSunArc();
 }
 
-document.getElementById("preference").addEventListener("change", applyPreferenceOverlays);
+// Segmented preference control
+document.querySelectorAll("#pref-segment .seg").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    pref = btn.dataset.pref;
+    document.querySelectorAll("#pref-segment .seg").forEach((b) => {
+      const active = b === btn;
+      b.classList.toggle("is-active", active);
+      b.setAttribute("aria-checked", String(active));
+    });
+    applyPreferenceOverlays();
+  });
+});
+
+// Hour chips
+document.querySelectorAll(".hour").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    hour = parseInt(btn.dataset.hour, 10);
+    document.querySelectorAll(".hour").forEach((b) => {
+      const active = b === btn;
+      b.classList.toggle("is-active", active);
+      b.setAttribute("aria-checked", String(active));
+    });
+    applyPreferenceOverlays();
+  });
+});
+
+// Distance chips
+document.querySelectorAll("#distance-chips .chip").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.getElementById("distance").value = btn.dataset.km;
+    document
+      .querySelectorAll("#distance-chips .chip")
+      .forEach((b) => b.classList.toggle("is-active", b === btn));
+  });
+});
+document.getElementById("distance").addEventListener("input", (e) => {
+  document
+    .querySelectorAll("#distance-chips .chip")
+    .forEach((b) => b.classList.toggle("is-active", b.dataset.km === e.target.value));
+});
+
+// Geolocation
+document.getElementById("locate").addEventListener("click", () => {
+  if (!navigator.geolocation) {
+    setStatus("Este navegador não oferece geolocalização.", "warn");
+    return;
+  }
+  setStatus("Localizando…", "");
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude: lat, longitude: lon } = pos.coords;
+      setStart(lat, lon);
+      map.flyTo({ center: [lon, lat], zoom: 15, duration: REDUCED ? 0 : 1200 });
+      const inside =
+        lon >= BBOX.lonMin && lon <= BBOX.lonMax && lat >= BBOX.latMin && lat <= BBOX.latMax;
+      setStatus(
+        inside
+          ? "Partida definida na sua localização."
+          : "Você está fora da área da demonstração (Guaratinguetá-SP) — a rota pode falhar.",
+        inside ? "ok" : "warn"
+      );
+    },
+    () => setStatus("Não foi possível obter sua localização. Toque no mapa para escolher a partida.", "warn"),
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+});
+
+// Surprise me — new random variation, generate immediately
+document.getElementById("shuffle").addEventListener("click", () => {
+  document.getElementById("seed").value = String(Math.floor(Math.random() * 1000));
+  document.getElementById("route-form").requestSubmit();
+});
 
 function readForm() {
   return {
@@ -384,57 +584,64 @@ function clearAltRoute() {
   if (src) src.setData({ type: "FeatureCollection", features: [] });
 }
 
+function setBusy(btn, busy) {
+  btn.disabled = busy;
+  btn.classList.toggle("is-busy", busy);
+}
+
+// ---------------------------------------------------------------------------
+// Generate
+// ---------------------------------------------------------------------------
 document.getElementById("route-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const { lat, lon, km, seed, profile } = readForm();
 
   const btn = document.getElementById("generate");
-  btn.disabled = true;
+  setBusy(btn, true);
   clearAltRoute();
   await applyPreferenceOverlays();
-  setStatus("Generating route…", "");
+  setStatus("Traçando a caminhada…", "");
 
   try {
     const response = await generateRoute(lat, lon, km, seed, profile);
     drawRoute(response);
   } catch (err) {
-    // GraphHopper unreachable → fall back to the bundled SAMPLE response so the
-    // map still demonstrates rendering. Clearly labeled; never pretends to be live.
+    // GraphHopper unreachable → bundled SAMPLE fallback, clearly labeled.
     if (err instanceof TypeError) {
       try {
         const sample = await fetch("/sample-route.json").then((r) => r.json());
         drawRoute(sample, { isSample: true });
         setStatus(
-          'Could not reach GraphHopper at <code>localhost:8989</code>. ' +
-            'Showing bundled <span class="sample-badge">SAMPLE</span> instead. ' +
-            "Start the backend (see README) for live routing.",
+          'Servidor de rotas indisponível em <code>localhost:8989</code>. ' +
+            'Exibindo <span class="sample-badge">AMOSTRA</span> — não é rota real. ' +
+            "Inicie o backend (veja o README).",
           "warn"
         );
       } catch {
-        setStatus("GraphHopper unreachable and sample missing: " + err.message, "error");
+        setStatus("Servidor indisponível e amostra ausente: " + err.message, "error");
       }
     } else {
-      setStatus("Routing error: " + err.message, "error");
+      setStatus("Erro ao traçar a rota: " + err.message, "error");
     }
   } finally {
-    btn.disabled = false;
+    setBusy(btn, false);
   }
 });
 
 // ---------------------------------------------------------------------------
-// Compare mode — same start/distance/seed, regular vs. the selected preference
+// Compare — same start/distance/seed, regular vs. the selected preference
 // ---------------------------------------------------------------------------
 document.getElementById("compare").addEventListener("click", async () => {
   const { lat, lon, km, seed, profile } = readForm();
-  const pref = currentPref();
-  if (pref === "none") {
-    setStatus("Pick a route preference (green or shade) to compare against regular.", "warn");
+  const key = currentPref();
+  if (key === "none") {
+    setStatus("Escolha uma prioridade (verde ou sombra) para comparar com a rota normal.", "warn");
     return;
   }
   const btn = document.getElementById("compare");
-  btn.disabled = true;
+  setBusy(btn, true);
   await applyPreferenceOverlays();
-  setStatus("Generating both routes…", "");
+  setStatus("Traçando as duas caminhadas…", "");
 
   try {
     const [regular, preferred] = await Promise.all([
@@ -442,7 +649,7 @@ document.getElementById("compare").addEventListener("click", async () => {
       generateRoute(lat, lon, km, seed, profile),
     ]);
 
-    // Gray dashed = regular; solid green = preference-aware (drawn on top)
+    // Slate dashed = regular; solid green = preference-aware (on top)
     const regCoords = regular.paths[0].points.coordinates.map((c) => [c[0], c[1]]);
     map.getSource("route-alt").setData({
       type: "FeatureCollection",
@@ -453,24 +660,31 @@ document.getElementById("compare").addEventListener("click", async () => {
     drawRoute(preferred);
 
     const fc = prefCollection();
-    const metric = PREF_LABELS[pref];
+    const metric = PREF_LABELS[key];
     const fReg = fractionIn(regCoords, fc);
-    const fPref = fractionIn(preferred.paths[0].points.coordinates.map((c) => [c[0], c[1]]), fc);
+    const fPref = fractionIn(
+      preferred.paths[0].points.coordinates.map((c) => [c[0], c[1]]),
+      fc
+    );
     const pct = (f) => (f === null ? "?" : `${Math.round(f * 100)}%`);
     setStatus(
-      `<b>Compare (seed ${seed}):</b> ` +
-        `<span style="color:#5b6b60">regular ${(regular.paths[0].distance / 1000).toFixed(2)} km, ${pct(fReg)} ${metric}</span> vs. ` +
-        `<span style="color:#256d46"><b>${metric} ${(preferred.paths[0].distance / 1000).toFixed(2)} km, ${pct(fPref)} ${metric}</b></span>`,
+      `<b>Variação ${seed}:</b> ` +
+        `<span class="cmp-reg">normal ${fmtKm(regular.paths[0].distance)} · ${pct(fReg)} ${metric}</span> vs. ` +
+        `<span class="cmp-pref">${metric} ${fmtKm(preferred.paths[0].distance)} · ${pct(fPref)}</span>`,
       "ok"
     );
   } catch (err) {
     setStatus(
       err instanceof TypeError
-        ? "Compare needs live GraphHopper at <code>localhost:8989</code> (see README)."
-        : "Routing error: " + err.message,
+        ? "Comparar exige o servidor de rotas em <code>localhost:8989</code> (veja o README)."
+        : "Erro ao traçar a rota: " + err.message,
       "error"
     );
   } finally {
-    btn.disabled = false;
+    setBusy(btn, false);
   }
 });
+
+// Initial UI state
+setStart(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
+updateSunArc();
