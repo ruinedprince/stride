@@ -7,6 +7,7 @@ backend/graphhopper-web-*.jar
 backend/data/*.osm
 backend/data/*.osm.pbf
 backend/data/*.osm.gz
+backend/data/*.geojsonl
 backend/graph-cache/
 
 # OS / editor

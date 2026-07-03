@@ -34,12 +34,18 @@
             Variant (seed)
             <input type="number" id="seed" min="0" step="1" value="0" />
           </label>
-          <label class="checkbox">
-            <input type="checkbox" id="prefer-green" />
-            🌳 Prefer green areas
+          <label>
+            Route preference
+            <select id="preference">
+              <option value="none">None — regular walking route</option>
+              <option value="green">🌳 Prefer green areas</option>
+              <option value="shade_9">⛅ Prefer shade at 9 h</option>
+              <option value="shade_12">⛅ Prefer shade at 12 h</option>
+              <option value="shade_15">⛅ Prefer shade at 15 h</option>
+            </select>
           </label>
           <button type="submit" id="generate">Generate route</button>
-          <button type="button" id="compare">Compare gray × green</button>
+          <button type="button" id="compare">Compare vs regular</button>
         </form>
 
         <div id="status"></div>
@@ -48,6 +54,7 @@
           <div><dt>Duration</dt><dd id="stat-duration">–</dd></div>
           <div><dt>Closes the loop</dt><dd id="stat-loop">–</dd></div>
           <div><dt>In green areas</dt><dd id="stat-green">–</dd></div>
+          <div><dt>In shade</dt><dd id="stat-shade">–</dd></div>
         </dl>
       </aside>
       <div id="map"></div>

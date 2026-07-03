@@ -2,23 +2,30 @@
 
 Walking-route **generator**: instead of recording a walk (Strava-style), Stride *decides*
 the walk. Give it a start point and a target distance and it generates a **loop** route
-that ends exactly where it started — and, since Phase 1, it can prefer loops through
-**parks, woods and green areas**.
+that ends exactly where it started — preferring **green areas** (Phase 1) or **shade at a
+given hour of day** (Phase 2), computed from real building footprints and solar geometry.
 
 Scope so far: real loop routing in **Guaratinguetá-SP, Brazil** on 100% open-source
 infrastructure — no paid APIs, no keys.
 
 - **Routing:** [GraphHopper](https://github.com/graphhopper/graphhopper) 11.0 (Apache 2.0),
-  profiles `foot` and `foot_green`, `algorithm=round_trip`, flexible mode (no CH).
-- **Data:** OpenStreetMap extract of Guaratinguetá via the Overpass API
-  (bbox lon `-45.30..-45.08`, lat `-22.92..-22.70`, ~24 MB XML).
+  profiles `foot`, `foot_green`, `foot_shade_{9,12,15}`, `algorithm=round_trip`,
+  flexible mode (no CH).
+- **Data:** OpenStreetMap extract via Overpass (bbox lon `-45.30..-45.08`,
+  lat `-22.92..-22.70`) + [Microsoft Global ML Building Footprints](https://github.com/microsoft/GlobalMLBuildingFootprints)
+  (ODbL) for shadow casting.
 - **Frontend:** [MapLibre GL JS](https://maplibre.org/) + Vite, vanilla JS. OSM raster tiles.
 
-**Phase 1 result (measured, not vibes):** across 8 random seeds at 6 km, the
-greenery-aware profile raises the length-weighted share of the route inside/along green
-areas from **9.4% to 13.1% on average** (greener in 7/8 seeds, best case 12% → 23%),
-while route length stays within ~2% of the regular profile. See *Phase 1* below for how
-it works and how it was tuned.
+**Measured results (8 random seeds, 6 km target, length-weighted metrics):**
+
+| Profile | Metric | Regular | Preference-aware | Wins | Route length |
+|---|---|---|---|---|---|
+| `foot_green` | share in/along green areas | 9.4% | **13.1%** | 7/8 | ±2% |
+| `foot_shade_9` | share in 9 am shade | 10.7% | **18.6%** | **8/8** | +4.5% |
+| `foot_shade_15` | share in 3 pm shade | 9.7% | **15.0%** | 7/8 | +5.7% |
+
+Best single cases: a loop that was **0.5% shaded goes to 16.8%** (9 am, seed 0);
+**0.9% → 20.9%** (3 pm, seed 5). All loops close with a 0.0 m gap.
 
 ---
 
@@ -52,6 +59,21 @@ npm install --prefix frontend
 python backend/scripts/build_green_areas.py
 ```
 
+**Phase 2 (shade) — optional regeneration.** The shade custom models and overlays for
+2026-07-03 at 9 h/12 h/15 h are committed, so the demo runs without this. To rebuild
+for another date (or after changing the bbox):
+
+```powershell
+pip install shapely
+
+# Microsoft ML building footprints for the bbox (~36 MB kept locally; the
+# script streams one Brazil quadkey tile and filters to the bbox)
+python backend/scripts/fetch_ms_buildings.py
+
+# Shadow polygons + custom models for chosen local hours
+python backend/scripts/build_shade_areas.py --date 2026-07-03 --hours 9,12,15
+```
+
 ### 2. Start the routing backend
 
 ```powershell
@@ -78,14 +100,14 @@ Open **http://localhost:5173**. Pick a distance (presets 3/6/10 km), click
 **Generate route**. Click anywhere on the map to move the start point. Change the
 **seed** to get a different loop for the same distance.
 
-Check **🌳 Prefer green areas** to route with the `foot_green` profile, or click
-**Compare gray × green** to draw both routes for the same seed — regular in dashed
-gray, greenery-aware in solid green — with the green share of each in the status line.
+Pick a **route preference** — 🌳 green areas, or ⛅ shade at 9 h / 12 h / 15 h — and the
+matching overlay appears on the map (green polygons or that hour's shadow map). Click
+**Compare vs regular** to draw both routes for the same seed — regular in dashed gray,
+preference-aware in solid green — with each route's green/shade share in the status line.
 
 The panel shows distance, estimated duration, a **"Closes the loop"** check
-(haversine gap between first and last route coordinate — should be `0.0 m`), and
-**"In green areas"** — the length-weighted share of the route inside/along green
-polygons.
+(haversine gap between first and last route coordinate — should be `0.0 m`), and the
+length-weighted shares **"In green areas"** and **"In shade"**.
 
 ## Honesty notes
 
@@ -104,21 +126,26 @@ polygons.
 
 ```
 backend/
-  config.yml                 GraphHopper config: foot + foot_green profiles,
-                             flexible mode (no CH)
-  custom_models/green.json   generated custom model: green areas + priority rules
-  scripts/build_green_areas.py  OSM → green polygons (model + overlay), stdlib-only
+  config.yml                 GraphHopper config: foot, foot_green,
+                             foot_shade_{9,12,15} profiles, flexible mode (no CH)
+  custom_models/green.json   generated: green areas + priority rules
+  custom_models/shade_*.json generated: per-hour shadow areas + priority rules
+  scripts/build_green_areas.py   OSM → green polygons (model + overlay), stdlib-only
+  scripts/fetch_ms_buildings.py  Microsoft ML footprints for the bbox, stdlib-only
+  scripts/build_shade_areas.py   solar position + shadow casting → shade models (shapely)
   data/guaratingueta.osm     OSM extract (downloaded, gitignored)
+  data/ms_buildings.geojsonl MS footprints (downloaded, gitignored)
   graphhopper-web-11.0.jar   server jar (downloaded, gitignored)
   graph-cache/               generated graph (gitignored)
 frontend/
   index.html                 form: start point, distance, presets, seed,
-                             prefer-green toggle, compare button
-  src/main.js                MapLibre map, GraphHopper call, green overlay,
-                             compare mode, length-weighted green stat,
+                             route preference (green / shade@9/12/15), compare
+  src/main.js                MapLibre map, GraphHopper call, green + shade
+                             overlays, compare mode, length-weighted stats,
                              loop-closure check, SAMPLE fallback
   src/style.css
   public/green-areas.geojson generated green polygons for display
+  public/shade-*.geojson     generated per-hour shadow maps for display
   public/sample-route.json   offline fallback, clearly labeled SAMPLE
 ```
 
@@ -160,11 +187,38 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
-## Phase 2 hook — shade-aware walks
+## Phase 2 — shade-aware walks (how it works)
 
-The heavier, more interesting layer: per-edge **shade share by hour of day**, computed
-from building footprints + tree data + solar position (see
-[CoolWalks, arXiv:2405.01225](https://arxiv.org/abs/2405.01225)). Same mechanism as
-Phase 1 — a generated custom model — but with time-dependent scoring, likely as one
-generated model per hour bucket. The demo target: the same 6 km loop "in the sun"
-vs. "in the shade at 3 pm", side by side.
+The idea (inspired by [CoolWalks, arXiv:2405.01225](https://arxiv.org/abs/2405.01225)):
+walking comfort depends on *when* you walk. For each preset local hour, Stride computes
+the city's shadow map and routes through it, using the exact mechanism validated in
+Phase 1 — a generated custom model whose areas are the shadows.
+
+Pipeline (`backend/scripts/build_shade_areas.py`, needs shapely):
+
+1. **Sun position** — NOAA solar position (pure Python, ±0.2°). Sanity check that the
+   physics is right: on 2026-07-03 (southern winter) at this latitude the noon sun sits
+   at azimuth 1.6° — **due north** — elevation 44°, exactly as it should below the
+   Tropic of Capricorn in July.
+2. **Obstacles** — buildings, trees, tree rows and woods. OSM building coverage here is
+   too sparse to be credible (measured: **93 buildings within 1 km** of the demo center,
+   2,299 of 2,742 beyond 3 km), so footprints come primarily from **Microsoft's ML
+   dataset**: 96,754 buildings in the bbox — 35× OSM — of which ~28k fall in the 4 km
+   working radius.
+3. **Shadow casting** — each obstacle casts `height / tan(elevation)` meters of shadow
+   away from the sun (footprint + translated footprint + a quad per edge), ~208k pieces
+   unioned with shapely, simplified, largest 250 polygons kept per hour.
+4. **Routing** — profile `foot_shade_<H>`: edges not touching that hour's shade get
+   `priority × 0.3` (the multiplier tuned in Phase 1). One custom model per hour preset.
+
+Honest limitations, on purpose:
+
+- **Heights are mostly defaults** (4 m houses, 12 m churches, `building:levels`×3 when
+  tagged — only 59 of 2.7k OSM buildings carry height data; MS estimates used when
+  present). The shadow map is a *realistic relative preference*, not survey-grade.
+- Shade models are **baked per date** (committed: 2026-07-03) at three preset hours;
+  regenerate with `--date`/`--hours` for other days. Below 8° sun elevation the hour is
+  skipped (everything is shade).
+- Same Phase 1 caveats: closed ways only, 250-polygon cap, ~4 km working radius around
+  the demo center.
+- Microsoft footprints are ML-extracted (ODbL); positional quality varies.

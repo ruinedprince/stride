@@ -35,7 +35,8 @@ body {
   color: #3a4a40;
 }
 
-#route-form input {
+#route-form input,
+#route-form select {
   display: block;
   width: 100%;
   margin-top: 3px;

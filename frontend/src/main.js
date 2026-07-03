@@ -57,6 +57,24 @@ map.on("load", async () => {
     // Overlay is optional — routing still works without it.
   }
 
+  // Shade overlay (Phase 2) — polygons swapped per selected hour.
+  map.addSource("shade-areas", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+  map.addLayer({
+    id: "shade-fill",
+    type: "fill",
+    source: "shade-areas",
+    paint: { "fill-color": "#31456b", "fill-opacity": 0.28 },
+  });
+  map.addLayer({
+    id: "shade-outline",
+    type: "line",
+    source: "shade-areas",
+    paint: { "line-color": "#31456b", "line-opacity": 0.4, "line-width": 0.8 },
+  });
+
   // Comparison route (regular foot profile) — gray, drawn under the main line.
   map.addSource("route-alt", {
     type: "geojson",
@@ -168,9 +186,13 @@ function drawRoute(ghResponse, { isSample = false } = {}) {
     ? `yes (gap ${gapMeters.toFixed(1)} m)`
     : `NO — gap ${gapMeters.toFixed(1)} m`;
 
-  const gf = greenFraction(coords.map((c) => [c[0], c[1]]));
+  const flat = coords.map((c) => [c[0], c[1]]);
+  const gf = greenFraction(flat);
   document.getElementById("stat-green").textContent =
     gf === null ? "–" : `${Math.round(gf * 100)}% of distance`;
+  const sf = fractionIn(flat, activeShade());
+  document.getElementById("stat-shade").textContent =
+    sf === null ? "–" : `${Math.round(sf * 100)}% of distance`;
 
   const sampleBadge = isSample
     ? ' <span class="sample-badge">SAMPLE DATA — not live routing</span>'
@@ -209,11 +231,11 @@ function pointInRing(lon, lat, ring) {
   return inside;
 }
 
-function inGreen(lon, lat) {
-  if (!greenAreas) return false;
-  // Precompute bounding boxes once for cheap rejection
-  if (!greenAreas._bboxes) {
-    greenAreas._bboxes = greenAreas.features.map((f) => {
+function inCollection(lon, lat, fc) {
+  if (!fc) return false;
+  // Precompute bounding boxes once per collection for cheap rejection
+  if (!fc._bboxes) {
+    fc._bboxes = fc.features.map((f) => {
       const ring = f.geometry.coordinates[0];
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const [x, y] of ring) {
@@ -225,27 +247,31 @@ function inGreen(lon, lat) {
       return [minX, minY, maxX, maxY];
     });
   }
-  for (let i = 0; i < greenAreas.features.length; i++) {
-    const [minX, minY, maxX, maxY] = greenAreas._bboxes[i];
+  for (let i = 0; i < fc.features.length; i++) {
+    const [minX, minY, maxX, maxY] = fc._bboxes[i];
     if (lon < minX || lon > maxX || lat < minY || lat > maxY) continue;
-    if (pointInRing(lon, lat, greenAreas.features[i].geometry.coordinates[0])) return true;
+    if (pointInRing(lon, lat, fc.features[i].geometry.coordinates[0])) return true;
   }
   return false;
 }
 
-// Length-weighted: fraction of route DISTANCE whose segment midpoint is in a
-// green area (point-count fractions are biased by uneven point density).
-function greenFraction(coords) {
-  if (!greenAreas || coords.length < 2) return null;
-  let total = 0, green = 0;
+// Length-weighted: fraction of route DISTANCE whose segment midpoint is inside
+// the collection (point-count fractions are biased by uneven point density).
+function fractionIn(coords, fc) {
+  if (!fc || coords.length < 2) return null;
+  let total = 0, hit = 0;
   for (let i = 1; i < coords.length; i++) {
     const [x1, y1] = coords[i - 1];
     const [x2, y2] = coords[i];
     const len = haversine(y1, x1, y2, x2);
     total += len;
-    if (inGreen((x1 + x2) / 2, (y1 + y2) / 2)) green += len;
+    if (inCollection((x1 + x2) / 2, (y1 + y2) / 2, fc)) hit += len;
   }
-  return total ? green / total : 0;
+  return total ? hit / total : 0;
+}
+
+function greenFraction(coords) {
+  return fractionIn(coords, greenAreas);
 }
 
 // ---------------------------------------------------------------------------
@@ -280,13 +306,76 @@ document.querySelectorAll(".preset").forEach((btn) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Route preference (Phase 1 green / Phase 2 shade)
+// ---------------------------------------------------------------------------
+const PROFILES = {
+  none: "foot",
+  green: "foot_green",
+  shade_9: "foot_shade_9",
+  shade_12: "foot_shade_12",
+  shade_15: "foot_shade_15",
+};
+const PREF_LABELS = {
+  green: "green",
+  shade_9: "shade@9h",
+  shade_12: "shade@12h",
+  shade_15: "shade@15h",
+};
+const shadeCache = {}; // hour -> geojson FeatureCollection
+
+function currentPref() {
+  return document.getElementById("preference").value;
+}
+
+function activeShade() {
+  const pref = currentPref();
+  return pref.startsWith("shade_") ? shadeCache[pref.slice(6)] || null : null;
+}
+
+// The collection the current preference optimizes for (used in compare stats)
+function prefCollection() {
+  const pref = currentPref();
+  if (pref === "green") return greenAreas;
+  return activeShade();
+}
+
+async function applyPreferenceOverlays() {
+  const pref = currentPref();
+  const isShade = pref.startsWith("shade_");
+  if (isShade) {
+    const hour = pref.slice(6);
+    if (!shadeCache[hour]) {
+      try {
+        shadeCache[hour] = await fetch(`/shade-${hour}.geojson`).then((r) => r.json());
+      } catch {
+        shadeCache[hour] = null;
+      }
+    }
+    const src = map.getSource("shade-areas");
+    if (src && shadeCache[hour]) src.setData(shadeCache[hour]);
+  }
+  for (const layer of ["green-fill", "green-outline"]) {
+    if (map.getLayer(layer)) {
+      map.setLayoutProperty(layer, "visibility", pref === "green" || pref === "none" ? "visible" : "none");
+    }
+  }
+  for (const layer of ["shade-fill", "shade-outline"]) {
+    if (map.getLayer(layer)) {
+      map.setLayoutProperty(layer, "visibility", isShade ? "visible" : "none");
+    }
+  }
+}
+
+document.getElementById("preference").addEventListener("change", applyPreferenceOverlays);
+
 function readForm() {
   return {
     lat: parseFloat(document.getElementById("lat").value),
     lon: parseFloat(document.getElementById("lon").value),
     km: parseFloat(document.getElementById("distance").value),
     seed: parseInt(document.getElementById("seed").value || "0", 10),
-    preferGreen: document.getElementById("prefer-green").checked,
+    profile: PROFILES[currentPref()] || "foot",
   };
 }
 
@@ -297,15 +386,16 @@ function clearAltRoute() {
 
 document.getElementById("route-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const { lat, lon, km, seed, preferGreen } = readForm();
+  const { lat, lon, km, seed, profile } = readForm();
 
   const btn = document.getElementById("generate");
   btn.disabled = true;
   clearAltRoute();
+  await applyPreferenceOverlays();
   setStatus("Generating route…", "");
 
   try {
-    const response = await generateRoute(lat, lon, km, seed, preferGreen ? "foot_green" : "foot");
+    const response = await generateRoute(lat, lon, km, seed, profile);
     drawRoute(response);
   } catch (err) {
     // GraphHopper unreachable → fall back to the bundled SAMPLE response so the
@@ -332,21 +422,27 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Compare mode — same start/distance/seed, regular vs. greenery-aware profile
+// Compare mode — same start/distance/seed, regular vs. the selected preference
 // ---------------------------------------------------------------------------
 document.getElementById("compare").addEventListener("click", async () => {
-  const { lat, lon, km, seed } = readForm();
+  const { lat, lon, km, seed, profile } = readForm();
+  const pref = currentPref();
+  if (pref === "none") {
+    setStatus("Pick a route preference (green or shade) to compare against regular.", "warn");
+    return;
+  }
   const btn = document.getElementById("compare");
   btn.disabled = true;
+  await applyPreferenceOverlays();
   setStatus("Generating both routes…", "");
 
   try {
-    const [regular, green] = await Promise.all([
+    const [regular, preferred] = await Promise.all([
       generateRoute(lat, lon, km, seed, "foot"),
-      generateRoute(lat, lon, km, seed, "foot_green"),
+      generateRoute(lat, lon, km, seed, profile),
     ]);
 
-    // Gray dashed = regular; solid green = greenery-aware (drawn on top)
+    // Gray dashed = regular; solid green = preference-aware (drawn on top)
     const regCoords = regular.paths[0].points.coordinates.map((c) => [c[0], c[1]]);
     map.getSource("route-alt").setData({
       type: "FeatureCollection",
@@ -354,15 +450,17 @@ document.getElementById("compare").addEventListener("click", async () => {
         { type: "Feature", geometry: { type: "LineString", coordinates: regCoords }, properties: {} },
       ],
     });
-    drawRoute(green);
+    drawRoute(preferred);
 
-    const gfReg = greenFraction(regCoords);
-    const gfGreen = greenFraction(green.paths[0].points.coordinates.map((c) => [c[0], c[1]]));
+    const fc = prefCollection();
+    const metric = PREF_LABELS[pref];
+    const fReg = fractionIn(regCoords, fc);
+    const fPref = fractionIn(preferred.paths[0].points.coordinates.map((c) => [c[0], c[1]]), fc);
     const pct = (f) => (f === null ? "?" : `${Math.round(f * 100)}%`);
     setStatus(
       `<b>Compare (seed ${seed}):</b> ` +
-        `<span style="color:#5b6b60">regular ${(regular.paths[0].distance / 1000).toFixed(2)} km, ${pct(gfReg)} green</span> vs. ` +
-        `<span style="color:#256d46"><b>green ${(green.paths[0].distance / 1000).toFixed(2)} km, ${pct(gfGreen)} green</b></span>`,
+        `<span style="color:#5b6b60">regular ${(regular.paths[0].distance / 1000).toFixed(2)} km, ${pct(fReg)} ${metric}</span> vs. ` +
+        `<span style="color:#256d46"><b>${metric} ${(preferred.paths[0].distance / 1000).toFixed(2)} km, ${pct(fPref)} ${metric}</b></span>`,
       "ok"
     );
   } catch (err) {
