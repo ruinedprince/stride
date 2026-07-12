@@ -73,7 +73,7 @@ export function generatePointToPoint(latA, lonA, latB, lonB, spec = {}) {
 // With a preference active (rankFC = shade/green polygons), take the shadiest/
 // greenest candidate within a distance band of the closest rather than the
 // distance-closest — otherwise a loop can hit the target while avoiding all shade.
-export async function generateFaithful(lat, lon, distanceKm, baseSeed, spec, rankFC = null) {
+export async function generateFaithful(lat, lon, distanceKm, baseSeed, spec, rankFC = null, avoidFC = null) {
   const target = distanceKm * 1000;
   const count = spec.customModel ? BEST_OF_SHADE : BEST_OF; // shade POSTs are heavy
   const seeds = Array.from({ length: count }, (_, i) => baseSeed + i);
@@ -87,6 +87,7 @@ export async function generateFaithful(lat, lon, distanceKm, baseSeed, spec, ran
           distance: r.paths[0].distance,
           distErr: Math.abs(r.paths[0].distance - target) / target,
           metric: rankFC ? fractionIn(coords, rankFC) : null,
+          reuse: avoidFC ? fractionIn(coords, avoidFC) : null,
         };
       }, () => null)
     )
@@ -95,9 +96,13 @@ export async function generateFaithful(lat, lon, distanceKm, baseSeed, spec, ran
   if (!ok.length) throw new TypeError("no route"); // let caller show SAMPLE
 
   let chosen;
-  if (rankFC) {
-    const bestErr = Math.min(...ok.map((c) => c.distErr));
-    const acceptable = ok.filter((c) => c.distErr <= bestErr + DIST_BAND);
+  const bestErr = Math.min(...ok.map((c) => c.distErr));
+  const acceptable = ok.filter((c) => c.distErr <= bestErr + DIST_BAND);
+  if (avoidFC) {
+    // Prefer the loop that reuses already-walked streets the least (discovery).
+    chosen = acceptable.sort((a, b) => (a.reuse ?? 1) - (b.reuse ?? 1))[0];
+  } else if (rankFC) {
+    // Prefer the shadiest/greenest of the distance-acceptable candidates.
     chosen = acceptable.sort((a, b) => (b.metric ?? 0) - (a.metric ?? 0))[0];
   } else {
     chosen = ok.slice().sort((a, b) => a.distErr - b.distErr)[0];

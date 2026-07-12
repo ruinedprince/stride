@@ -239,6 +239,15 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Avoid already-walked streets (discovery)
+
+When there are saved walks, an "Evitar ruas que já andei" toggle appears. `discovery.js`
+buffers the saved routes into thin corridor polygons and hands them to GraphHopper as
+**penalized areas** (`multiply_by 0.2`), merged with the current preference model. The real
+lever is selection: best-of ranks candidates by *least reuse* of those corridors, which drops
+the overlap with already-walked streets from ~69 % (penalty alone) to ~1 % — so each walk
+explores new ground. Reuses the same areas/custom-model mechanism as shade.
+
 ## Saved walks
 
 `storage.js` keeps walks in `localStorage` (no backend). "Salvar" (shown with a route)

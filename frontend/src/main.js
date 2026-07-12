@@ -11,6 +11,7 @@ import { MOODS } from "./intent.js";
 import { loadPois, nearestPoi } from "./pois.js";
 import * as nav from "./navigation.js";
 import { getWalks, saveWalk, deleteWalk, updateWalk } from "./storage.js";
+import { avoidModel } from "./discovery.js";
 
 // ---------------------------------------------------------------------------
 // Map load — build layers in stacking order, then a cinematic tilt-in
@@ -70,6 +71,7 @@ function setMode(m) {
   }
   clearPoi();
   document.getElementById("compare").hidden = ab;
+  updateAvoidVisibility();
   document.getElementById("generate").textContent = ab ? "Gerar rota" : "Gerar caminhada";
   if (!ab) {
     setDestMarker(null);
@@ -254,7 +256,7 @@ async function passByPoi(type) {
   await pref.applyPreferenceOverlays();
   setStatus("Traçando a ida e volta…", "");
   try {
-    const resp = await generateThrough([[lon, lat], [poi.lon, poi.lat], [lon, lat]], pref.routingSpec());
+    const resp = await generateThrough([[lon, lat], [poi.lon, poi.lat], [lon, lat]], routeSpec());
     setPoiMarker([poi.lon, poi.lat]);
     drawRoute(resp);
     afterRoute(resp.paths[0]);
@@ -339,6 +341,29 @@ document.getElementById("wx-apply").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Routing spec — merges the preference model with the "avoid walked" model
+// ---------------------------------------------------------------------------
+function mergeModels(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return {
+    priority: [...a.priority, ...b.priority],
+    areas: { type: "FeatureCollection", features: [...a.areas.features, ...b.areas.features] },
+  };
+}
+
+const avoidOn = () => document.getElementById("avoid-walked").checked;
+
+function routeSpec() {
+  if (avoidOn()) return { profile: "foot", customModel: mergeModels(pref.prefModel(), avoidModel()) };
+  return pref.routingSpec();
+}
+
+function updateAvoidVisibility() {
+  document.getElementById("avoid-field").hidden = mode === "ab" || getWalks().length === 0;
+}
+
+// ---------------------------------------------------------------------------
 // Generate
 // ---------------------------------------------------------------------------
 document.getElementById("route-form").addEventListener("submit", async (e) => {
@@ -362,14 +387,17 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
 
   try {
     if (mode === "ab") {
-      const resp = await generatePointToPoint(lat, lon, destLat, destLon, pref.routingSpec());
+      const resp = await generatePointToPoint(lat, lon, destLat, destLon, routeSpec());
       drawRoute(resp, { loop: false });
       afterRoute(resp.paths[0]);
       setStatus(`Rota até o destino · ${fmtKm(resp.paths[0].distance)}.`, "ok");
       return;
     }
-    // Best-of prefers the shadiest/greenest of the distance-acceptable candidates.
-    const best = await generateFaithful(lat, lon, km, seed, pref.routingSpec(), pref.prefCollection());
+    // Best-of prefers shadiest/greenest, or — when avoiding walked streets — the
+    // least-reused loop among the distance-acceptable candidates.
+    const avoidM = avoidOn() ? avoidModel() : null;
+    const spec = avoidM ? { profile: "foot", customModel: mergeModels(pref.prefModel(), avoidM) } : pref.routingSpec();
+    const best = await generateFaithful(lat, lon, km, seed, spec, pref.prefCollection(), avoidM?.areas || null);
     drawRoute(best.response);
     afterRoute(best.response.paths[0]);
     const offBy = Math.abs(best.distance - km * 1000) / (km * 1000);
@@ -558,6 +586,7 @@ function renderSaved() {
     li.querySelector(".del").addEventListener("click", () => { deleteWalk(w.id); renderSaved(); });
     list.appendChild(li);
   }
+  updateAvoidVisibility();
 }
 
 const OFF_ROUTE_M = 35;

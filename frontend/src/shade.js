@@ -75,6 +75,16 @@ export function prefLabel() {
   return "";
 }
 
+// The current preference as a per-request custom model (client-side), so it can
+// be merged with the "avoid walked" model. green/shade "keep those areas,
+// penalise the rest"; none → null. Green here is per-request instead of the
+// static foot_green profile (same top-N-areas mechanism as shade).
+export function prefModel() {
+  if (pref === "green") return greenAreas ? buildShadeModel(greenAreas) : null;
+  if (pref === "shade") return shadeModelCache[shadeHour()] || null;
+  return null;
+}
+
 // Custom model from a shade display geojson — polygons become `areas`, edges
 // outside them get priority × 0.3. Only the largest TOP_SHADE_POLYS polygons go
 // in the per-request model (payload/speed); the display overlay still shows all.
