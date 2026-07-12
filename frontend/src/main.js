@@ -1,5 +1,5 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
-import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
+import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, addTreeLayer, initPoiIcons, setPoiIcons, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm, fmtDuration } from "./ui.js";
@@ -8,7 +8,7 @@ import { drawRoute } from "./render.js";
 import * as pref from "./shade.js";
 import { fetchWeather, suggest } from "./weather.js";
 import { MOODS } from "./intent.js";
-import { loadPois, nearestPoi } from "./pois.js";
+import { loadPois, nearestPoi, poisOfType } from "./pois.js";
 import * as nav from "./navigation.js";
 import { getWalks, saveWalk, deleteWalk, updateWalk } from "./storage.js";
 import { avoidModel, walkedGeoJSON, loadGrid, exploredStats } from "./discovery.js";
@@ -23,6 +23,8 @@ async function buildLayers() {
   await pref.initGreenOverlay();
   pref.initShadeLayers();
   initWalkedLayer();
+  await addTreeLayer();
+  initPoiIcons();
   initRouteLayers();
   setWalkedData(walkedGeoJSON());
   await pref.applyPreferenceOverlays(); // restores shade/green + sun light for the current pref
@@ -251,6 +253,7 @@ function highlightPoi(type) {
 function clearPoi() {
   document.querySelectorAll("#poi-row .mood.is-active").forEach((b) => b.classList.remove("is-active"));
   setPoiMarker(null);
+  setPoiIcons([]);
 }
 
 async function passByPoi(type) {
@@ -266,6 +269,7 @@ async function passByPoi(type) {
   clearAltRoute();
   clearMoodHighlight();
   highlightPoi(type);
+  setPoiIcons(poisOfType(type, lat, lon));
   await pref.applyPreferenceOverlays();
   setStatus("Traçando a ida e volta…", "");
   try {

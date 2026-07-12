@@ -12,6 +12,18 @@ export async function loadPois() {
   return pois;
 }
 
+// POIs of a type, nearest first, capped — for the floating map icons.
+export function poisOfType(type, lat, lon, limit = 40) {
+  if (!pois) return [];
+  const feats = pois.features.filter((f) => f.properties.type === type);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    feats.sort((a, b) =>
+      haversine(lat, lon, a.geometry.coordinates[1], a.geometry.coordinates[0]) -
+      haversine(lat, lon, b.geometry.coordinates[1], b.geometry.coordinates[0]));
+  }
+  return feats.slice(0, limit);
+}
+
 // Nearest POI of a type to (lat, lon): { lon, lat, name, dist } or null.
 export function nearestPoi(type, lat, lon) {
   if (!pois) return null;
