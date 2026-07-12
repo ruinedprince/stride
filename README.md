@@ -239,6 +239,16 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Weather suggestions
+
+On load (and after geolocating), Stride reads the current conditions near the start point
+from [open-meteo](https://open-meteo.com) (free, no key) and shows a one-tap suggestion:
+hot + sunny → **prefer shade at the current hour** (straight into the shade engine); rain
+likely in the next hours → a **shorter loop**; mild → **explore the green**; night → a note
+to stay on familiar streets. `weather.js` fetches and interprets; "Aplicar" wires the
+suggestion into the existing preference/distance controls. It's an enhancement — if the
+request fails, the card just stays hidden.
+
 ## Elevation & relief
 
 GraphHopper imports **CGIAR SRTM** elevation (90 m, open, no key — downloaded on first

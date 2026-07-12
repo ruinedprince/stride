@@ -6,6 +6,7 @@ import { setStatus, setBusy, fmtKm } from "./ui.js";
 import { generateRoute, generateFaithful } from "./routing.js";
 import { drawRoute } from "./render.js";
 import * as pref from "./shade.js";
+import { fetchWeather, suggest } from "./weather.js";
 
 // ---------------------------------------------------------------------------
 // Map load — build layers in stacking order, then a cinematic tilt-in
@@ -56,16 +57,19 @@ function readForm() {
 // ---------------------------------------------------------------------------
 // Preference controls
 // ---------------------------------------------------------------------------
-document.querySelectorAll("#pref-segment .seg").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    pref.setPref(btn.dataset.pref);
-    document.querySelectorAll("#pref-segment .seg").forEach((b) => {
-      const active = b === btn;
-      b.classList.toggle("is-active", active);
-      b.setAttribute("aria-checked", String(active));
-    });
-    pref.applyPreferenceOverlays();
+// Select a preference and sync the segmented control — reused by the weather
+// suggestion, so it lives in a function rather than inline in the handler.
+function selectPref(prefName) {
+  pref.setPref(prefName);
+  document.querySelectorAll("#pref-segment .seg").forEach((b) => {
+    const active = b.dataset.pref === prefName;
+    b.classList.toggle("is-active", active);
+    b.setAttribute("aria-checked", String(active));
   });
+  return pref.applyPreferenceOverlays();
+}
+document.querySelectorAll("#pref-segment .seg").forEach((btn) => {
+  btn.addEventListener("click", () => selectPref(btn.dataset.pref));
 });
 
 // Continuous sun slider — moves the sun, tint and 3D light every frame, and
@@ -78,11 +82,12 @@ sunSlider.addEventListener("input", () => {
 });
 
 // Distance chips
+function setDistance(km) {
+  document.getElementById("distance").value = String(km);
+  document.querySelectorAll("#distance-chips .chip").forEach((b) => b.classList.toggle("is-active", b.dataset.km === String(km)));
+}
 document.querySelectorAll("#distance-chips .chip").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.getElementById("distance").value = btn.dataset.km;
-    document.querySelectorAll("#distance-chips .chip").forEach((b) => b.classList.toggle("is-active", b === btn));
-  });
+  btn.addEventListener("click", () => setDistance(btn.dataset.km));
 });
 document.getElementById("distance").addEventListener("input", (e) => {
   document.querySelectorAll("#distance-chips .chip").forEach((b) => b.classList.toggle("is-active", b.dataset.km === e.target.value));
@@ -100,6 +105,7 @@ document.getElementById("locate").addEventListener("click", () => {
       const { latitude: lat, longitude: lon } = pos.coords;
       setStart(lat, lon);
       map.flyTo({ center: [lon, lat], zoom: 15, duration: REDUCED ? 0 : 1200 });
+      refreshWeather(); // conditions at the new start point
       const inside = lon >= BBOX.lonMin && lon <= BBOX.lonMax && lat >= BBOX.latMin && lat <= BBOX.latMax;
       setStatus(
         inside
@@ -117,6 +123,45 @@ document.getElementById("locate").addEventListener("click", () => {
 document.getElementById("shuffle").addEventListener("click", () => {
   document.getElementById("seed").value = String(Math.floor(Math.random() * 1000));
   document.getElementById("route-form").requestSubmit();
+});
+
+// ---------------------------------------------------------------------------
+// Weather suggestion — reads current conditions near the start and proposes a
+// setup; the hot+sunny case flows straight into the shade engine.
+// ---------------------------------------------------------------------------
+let currentSuggestion = null;
+
+async function refreshWeather() {
+  const card = document.getElementById("weather-card");
+  const lat = parseFloat(document.getElementById("lat").value);
+  const lon = parseFloat(document.getElementById("lon").value);
+  try {
+    currentSuggestion = suggest(await fetchWeather(lat, lon));
+    document.getElementById("wx-icon").textContent = currentSuggestion.icon;
+    document.getElementById("wx-headline").textContent = currentSuggestion.headline;
+    document.getElementById("wx-message").textContent = currentSuggestion.message;
+    const btn = document.getElementById("wx-apply");
+    btn.classList.remove("is-applied");
+    btn.textContent = "Aplicar sugestão";
+    card.hidden = false;
+  } catch {
+    card.hidden = true; // weather is an enhancement — fail silently
+  }
+}
+
+document.getElementById("wx-apply").addEventListener("click", async () => {
+  const s = currentSuggestion;
+  if (!s) return;
+  if (s.pref === "shade" && s.hour != null) {
+    sunSlider.value = String(s.hour);
+    pref.setHour(s.hour);
+  }
+  if (s.distanceKm) setDistance(s.distanceKm);
+  await selectPref(s.pref);
+  const btn = document.getElementById("wx-apply");
+  btn.classList.add("is-applied");
+  btn.textContent = "✓ Aplicado";
+  setStatus("Sugestão aplicada — toque em <b>Gerar caminhada</b>.", "ok");
 });
 
 // ---------------------------------------------------------------------------
@@ -215,6 +260,7 @@ document.getElementById("compare").addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 setStart(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
 pref.updateSunArc();
+refreshWeather();
 
 pref.loadManifest().then((hours) => {
   if (!hours) return;

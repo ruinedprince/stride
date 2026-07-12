@@ -128,6 +128,47 @@ body {
   color: var(--ink-faint);
 }
 
+/* weather suggestion card */
+#weather-card {
+  margin-bottom: 16px;
+  padding: 13px 14px 12px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sun) 12%, var(--paper-solid)), var(--paper-solid));
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+  animation: arc-in 0.35s ease;
+}
+#weather-card[hidden] { display: none; }
+.wx-top { display: flex; gap: 11px; align-items: center; }
+#wx-icon { font-size: 26px; line-height: 1; flex-shrink: 0; }
+.wx-headline {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  font-stretch: 110%;
+  color: var(--ink);
+}
+.wx-message {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+#wx-apply {
+  width: 100%;
+  margin-top: 11px;
+  padding: 8px;
+  font: 700 12.5px var(--sans);
+  letter-spacing: 0.02em;
+  color: var(--green-deep);
+  background: rgba(30, 122, 74, 0.1);
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+#wx-apply:hover { background: rgba(30, 122, 74, 0.18); }
+#wx-apply.is-applied { color: var(--ink-faint); background: var(--well); cursor: default; }
+
 /* start row */
 .start-row { display: flex; align-items: center; gap: 10px; }
 
