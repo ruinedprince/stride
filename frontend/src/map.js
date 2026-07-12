@@ -43,6 +43,18 @@ export function setEndMarker(lonLat) {
   }
 }
 
+// Destination (B) marker for A→B mode — persists once picked.
+let destMarker = null;
+export function setDestMarker(lonLat) {
+  if (destMarker) {
+    destMarker.remove();
+    destMarker = null;
+  }
+  if (lonLat) {
+    destMarker = new maplibregl.Marker({ color: "#b3402f" }).setLngLat(lonLat).addTo(map);
+  }
+}
+
 function firstSymbolId() {
   return map.getStyle().layers.find((l) => l.type === "symbol")?.id;
 }

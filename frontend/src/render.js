@@ -70,7 +70,7 @@ function drawElevationProfile(coords, eles) {
   fig.hidden = false;
 }
 
-export function drawRoute(ghResponse, { isSample = false } = {}) {
+export function drawRoute(ghResponse, { isSample = false, loop = true } = {}) {
   const path = ghResponse.paths && ghResponse.paths[0];
   if (!path || !path.points || !path.points.coordinates) {
     throw new Error("Resposta sem paths[0].points.coordinates (points_encoded=false?)");
@@ -82,12 +82,22 @@ export function drawRoute(ghResponse, { isSample = false } = {}) {
 
   const first = coords[0];
   const last = coords[coords.length - 1];
-
-  const gapMeters = haversine(first[1], first[0], last[1], last[0]);
-  const closes = gapMeters < 30;
-
   ensureStartMarker(first[0], first[1]);
-  setEndMarker(closes ? null : [last[0], last[1]]);
+
+  const loopEl = document.getElementById("stat-loop");
+  if (loop) {
+    const gapMeters = haversine(first[1], first[0], last[1], last[0]);
+    const closes = gapMeters < 30;
+    setEndMarker(closes ? null : [last[0], last[1]]);
+    loopEl.textContent = closes
+      ? `✓ Volta ao início · desvio ${gapMeters.toFixed(1).replace(".", ",")} m`
+      : `✗ Não fecha o circuito · ${gapMeters.toFixed(0)} m de distância`;
+    loopEl.classList.toggle("is-open", !closes);
+  } else {
+    setEndMarker(null); // the destination (B) marker already marks the end
+    loopEl.textContent = "➡️ Ida até o destino";
+    loopEl.classList.remove("is-open");
+  }
 
   const bounds = flat.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(flat[0], flat[0]));
   map.fitBounds(bounds, { padding: fitPadding(), maxZoom: 16.5, duration: REDUCED ? 0 : 1400 });
@@ -95,12 +105,6 @@ export function drawRoute(ghResponse, { isSample = false } = {}) {
   document.getElementById("stats").hidden = false;
   document.getElementById("stat-distance").textContent = fmtKm(path.distance);
   document.getElementById("stat-duration").textContent = fmtDuration(path.time);
-
-  const loopEl = document.getElementById("stat-loop");
-  loopEl.textContent = closes
-    ? `✓ Volta ao início · desvio ${gapMeters.toFixed(1).replace(".", ",")} m`
-    : `✗ Não fecha o circuito · ${gapMeters.toFixed(0)} m de distância`;
-  loopEl.classList.toggle("is-open", !closes);
 
   const gf = fractionIn(flat, getGreenAreas());
   document.getElementById("stat-green").textContent = gf === null ? "—" : `${Math.round(gf * 100)}%`;

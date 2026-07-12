@@ -37,6 +37,33 @@ export async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
   return body;
 }
 
+// Point-to-point (A→B) — a normal shortest route, no round_trip/best-of. Green
+// and shade preferences still apply via profile / per-request custom model.
+export async function generatePointToPoint(latA, lonA, latB, lonB, spec = {}) {
+  const profile = spec.profile || "foot";
+  const cm = spec.customModel || null;
+  const base = { profile, points_encoded: false, "ch.disable": true, elevation: true };
+
+  let res;
+  if (cm) {
+    res = await fetch(GRAPHHOPPER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ points: [[lonA, latA], [lonB, latB]], ...base, custom_model: cm }),
+    });
+  } else {
+    const params = new URLSearchParams();
+    params.append("point", `${latA},${lonA}`);
+    params.append("point", `${latB},${lonB}`);
+    for (const [k, v] of Object.entries(base)) params.set(k, String(v));
+    res = await fetch(`${GRAPHHOPPER_URL}?${params}`);
+  }
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.message || `HTTP ${res.status}`);
+  return body;
+}
+
 // round_trip only *targets* a distance and its variance is huge, so try N seeds.
 // With a preference active (rankFC = shade/green polygons), take the shadiest/
 // greenest candidate within a distance band of the closest rather than the

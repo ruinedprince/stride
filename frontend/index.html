@@ -44,6 +44,11 @@
         </div>
 
         <form id="route-form">
+          <div class="segment mode-segment" id="mode-segment" role="radiogroup" aria-label="Tipo de percurso">
+            <button type="button" class="seg is-active" data-mode="loop" role="radio" aria-checked="true">🔁 Circuito</button>
+            <button type="button" class="seg" data-mode="ab" role="radio" aria-checked="false">➡️ Ida A→B</button>
+          </div>
+
           <section class="field">
             <span class="field-label">Partida</span>
             <div class="start-row">
@@ -58,12 +63,21 @@
             <input type="hidden" id="lon" value="-45.1927" />
           </section>
 
-          <section class="field">
+          <section class="field" id="sec-destino" hidden>
+            <span class="field-label">Destino</span>
+            <div class="start-row">
+              <span class="coords" id="dest-coords">toque no mapa para marcar</span>
+            </div>
+            <input type="hidden" id="dest-lat" />
+            <input type="hidden" id="dest-lon" />
+          </section>
+
+          <section class="field" id="sec-objetivo">
             <span class="field-label">Objetivo</span>
             <div class="mood-row" id="mood-row"></div>
           </section>
 
-          <section class="field">
+          <section class="field" id="sec-distancia">
             <div class="field-head">
               <span class="field-label">Distância</span>
               <div class="unit-toggle" id="unit-toggle" role="group" aria-label="Unidade">
@@ -109,7 +123,7 @@
             </div>
           </section>
 
-          <section class="field field-row">
+          <section class="field field-row" id="sec-variacao">
             <div>
               <span class="field-label">Variação</span>
               <input id="seed" type="number" min="0" step="1" value="0" aria-label="Semente da variação" />

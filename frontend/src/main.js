@@ -1,9 +1,9 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
-import { map, add3dBuildings, addHillshade, initRouteLayers, ensureStartMarker, clearAltRoute } from "./map.js";
+import { map, add3dBuildings, addHillshade, initRouteLayers, ensureStartMarker, setDestMarker, clearAltRoute } from "./map.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm } from "./ui.js";
-import { generateRoute, generateFaithful } from "./routing.js";
+import { generateRoute, generateFaithful, generatePointToPoint } from "./routing.js";
 import { drawRoute } from "./render.js";
 import * as pref from "./shade.js";
 import { fetchWeather, suggest } from "./weather.js";
@@ -27,10 +27,57 @@ map.on("load", async () => {
   }
 });
 
-// Click the map to move the start point.
+// Click the map: in Loop mode moves the start, in A→B mode sets the destination.
 map.on("click", (e) => {
-  setStart(e.lngLat.lat, e.lngLat.lng);
-  setStatus("Partida movida. Toque em <b>Gerar caminhada</b>.", "");
+  if (mode === "ab") {
+    setDest(e.lngLat.lat, e.lngLat.lng);
+    setStatus("Destino marcado. Toque em <b>Gerar rota</b>.", "");
+  } else {
+    setStart(e.lngLat.lat, e.lngLat.lng);
+    setStatus("Partida movida. Toque em <b>Gerar caminhada</b>.", "");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Route mode — Loop (round_trip) vs A→B (point-to-point)
+// ---------------------------------------------------------------------------
+let mode = "loop"; // "loop" | "ab"
+
+function setDest(lat, lon) {
+  document.getElementById("dest-lat").value = lat.toFixed(6);
+  document.getElementById("dest-lon").value = lon.toFixed(6);
+  document.getElementById("dest-coords").textContent = `${lat.toFixed(4).replace(".", ",").replace("-", "−")} · ${lon
+    .toFixed(4)
+    .replace(".", ",")
+    .replace("-", "−")}`;
+  setDestMarker([lon, lat]);
+}
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll("#mode-segment .seg").forEach((b) => {
+    const active = b.dataset.mode === m;
+    b.classList.toggle("is-active", active);
+    b.setAttribute("aria-checked", String(active));
+  });
+  const ab = m === "ab";
+  document.getElementById("sec-destino").hidden = !ab;
+  for (const id of ["sec-objetivo", "sec-distancia", "sec-variacao"]) {
+    document.getElementById(id).hidden = ab;
+  }
+  document.getElementById("compare").hidden = ab;
+  document.getElementById("generate").textContent = ab ? "Gerar rota" : "Gerar caminhada";
+  if (!ab) {
+    setDestMarker(null);
+    document.getElementById("dest-lat").value = "";
+    document.getElementById("dest-coords").textContent = "toque no mapa para marcar";
+  } else {
+    setStatus("Toque no mapa para marcar o destino.", "");
+  }
+}
+
+document.querySelectorAll("#mode-segment .seg").forEach((btn) => {
+  btn.addEventListener("click", () => setMode(btn.dataset.mode));
 });
 
 // ---------------------------------------------------------------------------
@@ -247,12 +294,27 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const { lat, lon, km, seed } = readForm();
   const btn = document.getElementById("generate");
+
+  // A→B mode needs a destination before it can route.
+  const destLat = parseFloat(document.getElementById("dest-lat").value);
+  const destLon = parseFloat(document.getElementById("dest-lon").value);
+  if (mode === "ab" && Number.isNaN(destLat)) {
+    setStatus("Toque no mapa para marcar o destino.", "warn");
+    return;
+  }
+
   setBusy(btn, true);
   clearAltRoute();
   await pref.applyPreferenceOverlays();
-  setStatus("Traçando a caminhada…", "");
+  setStatus(mode === "ab" ? "Traçando a rota…" : "Traçando a caminhada…", "");
 
   try {
+    if (mode === "ab") {
+      const resp = await generatePointToPoint(lat, lon, destLat, destLon, pref.routingSpec());
+      drawRoute(resp, { loop: false });
+      setStatus(`Rota até o destino · ${fmtKm(resp.paths[0].distance)}.`, "ok");
+      return;
+    }
     // Best-of prefers the shadiest/greenest of the distance-acceptable candidates.
     const best = await generateFaithful(lat, lon, km, seed, pref.routingSpec(), pref.prefCollection());
     drawRoute(best.response);
@@ -262,7 +324,7 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
       : ` (melhor de ${best.tried} variações)`;
     setStatus(`Alvo ${targetLabel()} → ${fmtKm(best.distance)}${note}.`, "ok");
   } catch (err) {
-    if (err instanceof TypeError) {
+    if (err instanceof TypeError && mode !== "ab") {
       try {
         const sample = await fetch("/sample-route.json").then((r) => r.json());
         drawRoute(sample, { isSample: true });

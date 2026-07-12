@@ -239,6 +239,15 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Loop or A→B
+
+A mode toggle at the top of the form: **Circuito** (the round_trip loop) or **Ida A→B**. In
+A→B mode the loop-only controls (objective, distance, variation, compare) hide, a Destino
+field appears, and tapping the map sets the destination (B); the start (A) stays your
+location. Generate then routes point-to-point (`generatePointToPoint`, no round_trip /
+best-of) — green and shade preferences still apply via the profile / per-request custom
+model, and the loop-closure pill becomes "➡️ Ida até o destino".
+
 ## Distance or duration
 
 The distance control has a **km / min** toggle. In "min" mode the chips become 30/45/60 min

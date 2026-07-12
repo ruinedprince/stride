@@ -196,6 +196,9 @@ body {
 }
 
 /* distance chips */
+.mode-segment { margin-bottom: 16px; }
+#sec-destino .coords { color: var(--ink-soft); font-family: var(--sans); font-weight: 600; }
+
 /* field head with a unit toggle */
 .field-head {
   display: flex;
