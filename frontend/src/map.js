@@ -67,6 +67,23 @@ export function setPoiMarker(lonLat) {
   }
 }
 
+// Live position dot during navigation (pulsing blue).
+let navMarker = null;
+export function setNavMarker(lonLat) {
+  if (!lonLat) {
+    if (navMarker) navMarker.remove();
+    navMarker = null;
+    return;
+  }
+  if (!navMarker) {
+    const el = document.createElement("div");
+    el.className = "nav-dot";
+    navMarker = new maplibregl.Marker({ element: el }).setLngLat(lonLat).addTo(map);
+  } else {
+    navMarker.setLngLat(lonLat);
+  }
+}
+
 function firstSymbolId() {
   return map.getStyle().layers.find((l) => l.type === "symbol")?.id;
 }

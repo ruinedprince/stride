@@ -576,6 +576,136 @@ body {
 .loop-pill.is-open { color: var(--alert); background: rgba(179, 64, 47, 0.09); }
 
 /* ==========================================================================
+   Live navigation
+   ========================================================================== */
+#start-walk {
+  width: 100%;
+  margin-top: 12px;
+  padding: 13px;
+  font: 700 15.5px var(--sans);
+  font-stretch: 110%;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--green);
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(30, 122, 74, 0.35);
+  transition: transform 0.12s ease, background 0.15s ease;
+}
+#start-walk[hidden] { display: none; }
+#start-walk:hover { background: var(--green-deep); }
+#start-walk:active { transform: translateY(1px); }
+
+#nav-panel[hidden] { display: none; }
+.nav-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.nav-title {
+  font: 800 17px var(--sans);
+  font-stretch: 112%;
+  letter-spacing: 0.01em;
+}
+#nav-stop {
+  padding: 6px 13px;
+  font: 700 12px var(--sans);
+  color: var(--alert);
+  background: rgba(179, 64, 47, 0.1);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+#nav-stop:hover { background: rgba(179, 64, 47, 0.18); }
+
+.nav-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--well);
+  overflow: hidden;
+}
+#nav-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--green);
+  transition: width 0.2s linear;
+}
+
+.nav-metrics {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.nav-metrics > div {
+  flex: 1;
+  padding: 12px 14px;
+  background: var(--paper-solid);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+}
+.nav-metrics strong {
+  display: block;
+  font-size: 22px;
+  font-weight: 800;
+  font-stretch: 112%;
+  font-variant-numeric: tabular-nums;
+}
+.nav-metrics span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.nav-off {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  text-align: center;
+  font: 700 12.5px var(--sans);
+  color: var(--alert);
+  background: rgba(179, 64, 47, 0.09);
+  border-radius: var(--radius-s);
+}
+.nav-off[hidden] { display: none; }
+
+#nav-sim {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px;
+  font: 600 13px var(--sans);
+  color: var(--ink-soft);
+  background: var(--well);
+  border: none;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+#nav-sim:hover { background: rgba(20, 32, 26, 0.1); }
+#nav-sim:disabled { color: var(--ink-faint); cursor: default; }
+
+.nav-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2e7de0;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(16, 26, 20, 0.4);
+  position: relative;
+}
+.nav-dot::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid #2e7de0;
+  opacity: 0.5;
+  animation: pulse 2s ease-out infinite;
+}
+
+/* ==========================================================================
    Map furniture
    ========================================================================== */
 .maplibregl-ctrl-top-right { top: 14px; right: 14px; }

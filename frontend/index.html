@@ -168,6 +168,22 @@
 
           <div class="loop-pill" id="stat-loop">–</div>
         </dl>
+
+        <button type="button" id="start-walk" hidden>Iniciar caminhada</button>
+
+        <div id="nav-panel" hidden>
+          <div class="nav-head">
+            <span class="nav-title">Caminhando</span>
+            <button type="button" id="nav-stop">Encerrar</button>
+          </div>
+          <div class="nav-progress"><div id="nav-bar"></div></div>
+          <div class="nav-metrics">
+            <div><strong id="nav-remaining">—</strong><span>restante</span></div>
+            <div><strong id="nav-eta">—</strong><span>chegada</span></div>
+          </div>
+          <p id="nav-off" class="nav-off" hidden>⚠️ Você saiu da rota</p>
+          <button type="button" id="nav-sim">▶ Simular percurso</button>
+        </div>
       </aside>
     </div>
     <script type="module" src="./src/main.js"></script>

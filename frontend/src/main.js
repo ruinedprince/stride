@@ -1,5 +1,5 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
-import { map, add3dBuildings, addHillshade, initRouteLayers, ensureStartMarker, setDestMarker, setPoiMarker, clearAltRoute } from "./map.js";
+import { map, add3dBuildings, addHillshade, initRouteLayers, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm } from "./ui.js";
@@ -9,6 +9,7 @@ import * as pref from "./shade.js";
 import { fetchWeather, suggest } from "./weather.js";
 import { MOODS } from "./intent.js";
 import { loadPois, nearestPoi } from "./pois.js";
+import * as nav from "./navigation.js";
 
 // ---------------------------------------------------------------------------
 // Map load — build layers in stacking order, then a cinematic tilt-in
@@ -255,6 +256,7 @@ async function passByPoi(type) {
     const resp = await generateThrough([[lon, lat], [poi.lon, poi.lat], [lon, lat]], pref.routingSpec());
     setPoiMarker([poi.lon, poi.lat]);
     drawRoute(resp);
+    afterRoute(resp.paths[0]);
     const nm = poi.name || POI_NAMES[type];
     setStatus(`Ida e volta por ${nm} · ${fmtKm(resp.paths[0].distance)} (${Math.round(poi.dist)} m de ida).`, "ok");
   } catch (err) {
@@ -361,12 +363,14 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
     if (mode === "ab") {
       const resp = await generatePointToPoint(lat, lon, destLat, destLon, pref.routingSpec());
       drawRoute(resp, { loop: false });
+      afterRoute(resp.paths[0]);
       setStatus(`Rota até o destino · ${fmtKm(resp.paths[0].distance)}.`, "ok");
       return;
     }
     // Best-of prefers the shadiest/greenest of the distance-acceptable candidates.
     const best = await generateFaithful(lat, lon, km, seed, pref.routingSpec(), pref.prefCollection());
     drawRoute(best.response);
+    afterRoute(best.response.paths[0]);
     const offBy = Math.abs(best.distance - km * 1000) / (km * 1000);
     const note = offBy > 0.2
       ? " — a malha da região não tem um circuito mais próximo"
@@ -440,6 +444,76 @@ document.getElementById("compare").addEventListener("click", async () => {
   } finally {
     setBusy(btn, false);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Live navigation
+// ---------------------------------------------------------------------------
+function afterRoute(path) {
+  nav.setRoute(path);
+  document.getElementById("start-walk").hidden = false;
+}
+
+const OFF_ROUTE_M = 35;
+const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1).replace(".", ",")} km` : `${Math.round(m)} m`);
+let lastRecenter = 0;
+
+function onNavUpdate(s) {
+  const simBtn = document.getElementById("nav-sim");
+  if (s.done) {
+    document.getElementById("nav-bar").style.width = "100%";
+    document.getElementById("nav-remaining").textContent = "0 m";
+    document.getElementById("nav-off").hidden = true;
+    document.querySelector("#nav-panel .nav-title").textContent = "Você chegou! 🎉";
+    simBtn.disabled = false;
+    return;
+  }
+  setNavMarker([s.lon, s.lat]);
+  document.getElementById("nav-bar").style.width = `${Math.round((s.frac || 0) * 100)}%`;
+  document.getElementById("nav-remaining").textContent = fmtDist(s.remaining);
+  const arrival = new Date(Date.now() + (s.etaMs || 0));
+  document.getElementById("nav-eta").textContent = arrival.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  document.getElementById("nav-off").hidden = s.offBy <= OFF_ROUTE_M;
+  // Recenter throttled (a per-tick camera move thrashes the 3D renderer).
+  const now = Date.now();
+  if (now - lastRecenter > 1000) {
+    map.setCenter([s.lon, s.lat]);
+    lastRecenter = now;
+  }
+}
+
+function enterNav() {
+  for (const id of ["route-form", "weather-card", "stats", "start-walk"]) {
+    document.getElementById(id).hidden = true;
+  }
+  setStatus("", "");
+  document.querySelector("#nav-panel .nav-title").textContent = "Caminhando";
+  document.getElementById("nav-off").hidden = true;
+  document.getElementById("nav-sim").disabled = false;
+  document.getElementById("nav-panel").hidden = false;
+  nav.start(onNavUpdate, (err) =>
+    setStatus("Sem GPS (" + (err.message || "negado") + ") — toque em ▶ Simular percurso.", "warn")
+  );
+}
+
+function exitNav() {
+  nav.stop();
+  setNavMarker(null);
+  document.getElementById("nav-panel").hidden = true;
+  for (const id of ["route-form", "weather-card", "stats", "start-walk"]) {
+    document.getElementById(id).hidden = false;
+  }
+}
+
+if (import.meta.env?.DEV) window.__nav = nav; // dev-only handle for debugging
+document.getElementById("start-walk").addEventListener("click", enterNav);
+document.getElementById("nav-stop").addEventListener("click", exitNav);
+document.getElementById("nav-sim").addEventListener("click", () => {
+  nav.stop();
+  document.getElementById("nav-sim").disabled = true;
+  document.getElementById("nav-off").hidden = true;
+  document.querySelector("#nav-panel .nav-title").textContent = "Caminhando";
+  nav.simulate(onNavUpdate);
 });
 
 // ---------------------------------------------------------------------------
