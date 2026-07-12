@@ -239,6 +239,19 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Live navigation
+
+`navigation.js` follows the walker along a generated route. `setRoute` stores the GraphHopper
+path (coordinates, cumulative distance, time, and turn instructions); `progressAt` snaps a live
+position onto the route for progress / remaining / ETA and off-route detection (>35 m).
+Positions come from the Geolocation API (`watchPosition`); `simulate()` fast-forwards a virtual
+walker (~40 s) for desktop/demo.
+
+Turn-by-turn requests instructions with `locale=pt`, maps each instruction's point interval to a
+cumulative-distance span, and shows the next maneuver (icon + street + distance). **Voice**
+(Web Speech API, pt-BR) announces each turn once when ~120 m ahead and again at the maneuver;
+a 🔊/🔇 button mutes it. Map recenter is throttled to 1 s so the 3D renderer doesn't thrash.
+
 ## Pass by a POI
 
 `build_pois.py` extracts points of interest from the OSM extract into

@@ -14,7 +14,37 @@ export function setRoute(ghPath) {
   for (let i = 1; i < coords.length; i++) {
     cumM.push(cumM[i - 1] + haversine(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]));
   }
-  route = { coords, cumM, totalM: cumM[cumM.length - 1] || 0, timeMs: ghPath.time || 0 };
+  const totalM = cumM[cumM.length - 1] || 0;
+  // Turn-by-turn: map each instruction's point interval to a cumulative-distance
+  // span so we can pick the current maneuver from the covered distance.
+  const instr = (ghPath.instructions || []).map((ins) => ({
+    text: ins.text,
+    sign: ins.sign,
+    cumStart: cumM[ins.interval[0]] ?? 0,
+    cumEnd: cumM[ins.interval[1]] ?? totalM,
+  }));
+  route = { coords, cumM, totalM, timeMs: ghPath.time || 0, instr };
+}
+
+// The maneuver coming up given how far along the route the walker is:
+// { idx, distToNext, sign, text, isFinish }. distToNext is the distance left in
+// the current segment (i.e., to the next turn); text describes that turn.
+function currentInstruction(covered) {
+  const instr = route?.instr;
+  if (!instr || !instr.length) return null;
+  let idx = 0;
+  for (let i = 0; i < instr.length; i++) {
+    if (instr[i].cumStart <= covered + 1) idx = i;
+    else break;
+  }
+  const next = instr[idx + 1];
+  return {
+    idx,
+    distToNext: Math.max(0, instr[idx].cumEnd - covered),
+    sign: next ? next.sign : 4,
+    text: next ? next.text : "Chegando ao destino",
+    isFinish: !next,
+  };
 }
 
 export function hasRoute() {
@@ -59,7 +89,7 @@ function etaMsFor(remaining) {
 }
 
 function emit(lon, lat, p) {
-  onUpdate?.({ lon, lat, ...p, etaMs: etaMsFor(p.remaining) });
+  onUpdate?.({ lon, lat, ...p, etaMs: etaMsFor(p.remaining), instruction: currentInstruction(p.covered) });
 }
 
 export function start(cb, errCb) {

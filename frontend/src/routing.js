@@ -13,6 +13,7 @@ export async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
     points_encoded: false,
     "ch.disable": true,
     elevation: true, // 3rd coordinate + ascend/descend for the profile chart
+    locale: "pt", // turn-by-turn instructions in Portuguese
   };
 
   let res;
@@ -43,7 +44,7 @@ export async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
 export async function generateThrough(points, spec = {}) {
   const profile = spec.profile || "foot";
   const cm = spec.customModel || null;
-  const base = { profile, points_encoded: false, "ch.disable": true, elevation: true };
+  const base = { profile, points_encoded: false, "ch.disable": true, elevation: true, locale: "pt" };
 
   let res;
   if (cm) {

@@ -458,14 +458,48 @@ const OFF_ROUTE_M = 35;
 const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1).replace(".", ",")} km` : `${Math.round(m)} m`);
 let lastRecenter = 0;
 
+// --- turn-by-turn voice -----------------------------------------------------
+let muted = false;
+let annKey = -1, aheadSaid = false, nowSaid = false;
+
+function maneuverIcon(sign) {
+  return {
+    "-3": "↰", "-2": "←", "-1": "↖", "0": "↑", "1": "↗", "2": "→", "3": "↱",
+    "4": "🏁", "5": "◎", "6": "↻", "-7": "↖", "7": "↗", "-8": "↩", "-98": "↩",
+  }[String(sign)] || "↑";
+}
+
+function speak(text) {
+  if (muted || !("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "pt-BR";
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(u);
+}
+
+function maybeAnnounce(ins) {
+  if (ins.isFinish) return;
+  if (ins.idx !== annKey) { annKey = ins.idx; aheadSaid = false; nowSaid = false; }
+  if (!aheadSaid && ins.distToNext <= 120 && ins.distToNext > 25) {
+    speak(`Em ${Math.round(ins.distToNext)} metros, ${ins.text}`);
+    aheadSaid = true;
+  } else if (!nowSaid && ins.distToNext <= 25) {
+    speak(ins.text);
+    nowSaid = true;
+  }
+}
+
 function onNavUpdate(s) {
-  const simBtn = document.getElementById("nav-sim");
   if (s.done) {
     document.getElementById("nav-bar").style.width = "100%";
     document.getElementById("nav-remaining").textContent = "0 m";
     document.getElementById("nav-off").hidden = true;
+    document.getElementById("nav-instr-icon").textContent = "🏁";
+    document.getElementById("nav-instr-text").textContent = "Você chegou!";
+    document.getElementById("nav-instr-dist").textContent = "";
     document.querySelector("#nav-panel .nav-title").textContent = "Você chegou! 🎉";
-    simBtn.disabled = false;
+    document.getElementById("nav-sim").disabled = false;
+    speak("Você chegou ao destino.");
     return;
   }
   setNavMarker([s.lon, s.lat]);
@@ -474,6 +508,15 @@ function onNavUpdate(s) {
   const arrival = new Date(Date.now() + (s.etaMs || 0));
   document.getElementById("nav-eta").textContent = arrival.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   document.getElementById("nav-off").hidden = s.offBy <= OFF_ROUTE_M;
+
+  const ins = s.instruction;
+  if (ins) {
+    document.getElementById("nav-instr-icon").textContent = maneuverIcon(ins.sign);
+    document.getElementById("nav-instr-text").textContent = ins.text;
+    document.getElementById("nav-instr-dist").textContent = ins.isFinish ? "" : `em ${fmtDist(ins.distToNext)}`;
+    maybeAnnounce(ins);
+  }
+
   // Recenter throttled (a per-tick camera move thrashes the 3D renderer).
   const now = Date.now();
   if (now - lastRecenter > 1000) {
@@ -491,6 +534,7 @@ function enterNav() {
   document.getElementById("nav-off").hidden = true;
   document.getElementById("nav-sim").disabled = false;
   document.getElementById("nav-panel").hidden = false;
+  annKey = -1; aheadSaid = false; nowSaid = false; // fresh announcements
   nav.start(onNavUpdate, (err) =>
     setStatus("Sem GPS (" + (err.message || "negado") + ") — toque em ▶ Simular percurso.", "warn")
   );
@@ -499,6 +543,7 @@ function enterNav() {
 function exitNav() {
   nav.stop();
   setNavMarker(null);
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   document.getElementById("nav-panel").hidden = true;
   for (const id of ["route-form", "weather-card", "stats", "start-walk"]) {
     document.getElementById(id).hidden = false;
@@ -507,6 +552,13 @@ function exitNav() {
 
 if (import.meta.env?.DEV) window.__nav = nav; // dev-only handle for debugging
 document.getElementById("start-walk").addEventListener("click", enterNav);
+document.getElementById("nav-mute").addEventListener("click", () => {
+  muted = !muted;
+  const b = document.getElementById("nav-mute");
+  b.textContent = muted ? "🔇" : "🔊";
+  b.classList.toggle("is-muted", muted);
+  if (muted && "speechSynthesis" in window) window.speechSynthesis.cancel();
+});
 document.getElementById("nav-stop").addEventListener("click", exitNav);
 document.getElementById("nav-sim").addEventListener("click", () => {
   nav.stop();

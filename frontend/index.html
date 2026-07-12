@@ -174,7 +174,17 @@
         <div id="nav-panel" hidden>
           <div class="nav-head">
             <span class="nav-title">Caminhando</span>
-            <button type="button" id="nav-stop">Encerrar</button>
+            <div class="nav-head-btns">
+              <button type="button" id="nav-mute" aria-label="Ativar ou silenciar voz" title="Voz">🔊</button>
+              <button type="button" id="nav-stop">Encerrar</button>
+            </div>
+          </div>
+          <div class="nav-instr">
+            <span class="nav-instr-icon" id="nav-instr-icon">↑</span>
+            <div class="nav-instr-body">
+              <p class="nav-instr-text" id="nav-instr-text">—</p>
+              <p class="nav-instr-dist" id="nav-instr-dist"></p>
+            </div>
           </div>
           <div class="nav-progress"><div id="nav-bar"></div></div>
           <div class="nav-metrics">

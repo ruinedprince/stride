@@ -620,6 +620,43 @@ body {
 }
 #nav-stop:hover { background: rgba(179, 64, 47, 0.18); }
 
+.nav-head-btns { display: flex; align-items: center; gap: 6px; }
+#nav-mute {
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  line-height: 1;
+  background: var(--well);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+#nav-mute.is-muted { opacity: 0.5; }
+
+/* next-maneuver banner */
+.nav-instr {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 13px 14px;
+  background: var(--green);
+  border-radius: 14px;
+  color: #fff;
+}
+.nav-instr-icon { font-size: 30px; line-height: 1; flex-shrink: 0; }
+.nav-instr-body { min-width: 0; }
+.nav-instr-text {
+  margin: 0;
+  font: 700 15px var(--sans);
+  line-height: 1.25;
+}
+.nav-instr-dist {
+  margin: 2px 0 0;
+  font: 600 12.5px var(--mono);
+  color: rgba(255, 255, 255, 0.8);
+}
+
 .nav-progress {
   height: 8px;
   border-radius: 999px;
