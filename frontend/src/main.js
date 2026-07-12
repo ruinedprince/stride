@@ -645,6 +645,8 @@ function renderSaved() {
 const OFF_ROUTE_M = 35;
 const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1).replace(".", ",")} km` : `${Math.round(m)} m`);
 let lastRecenter = 0;
+let navStartMs = 0; // for pace
+let navFollowed = false; // GPS-mode camera has locked on
 
 // --- turn-by-turn voice -----------------------------------------------------
 let muted = false;
@@ -694,9 +696,19 @@ function onNavUpdate(s) {
   lastNav = { remaining: s.remaining, etaMs: s.etaMs, lon: s.lon, lat: s.lat };
   document.getElementById("nav-bar").style.width = `${Math.round((s.frac || 0) * 100)}%`;
   document.getElementById("nav-remaining").textContent = fmtDist(s.remaining);
+  document.getElementById("nav-covered").textContent = fmtDist(s.covered || 0);
   const arrival = new Date(Date.now() + (s.etaMs || 0));
   document.getElementById("nav-eta").textContent = arrival.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   document.getElementById("nav-off").hidden = s.offBy <= OFF_ROUTE_M;
+
+  // Pace (min/km): live (real elapsed / covered) when walking; the route's
+  // average during a simulation, since sim time is a fast-forward.
+  const coveredKm = (s.covered || 0) / 1000;
+  const pace = s.simulated
+    ? nav.avgPaceMinKm()
+    : coveredKm > 0.05 ? (Date.now() - navStartMs) / 60000 / coveredKm : 0;
+  document.getElementById("nav-pace").textContent =
+    pace > 0 && pace < 90 ? `${Math.floor(pace)}'${String(Math.round((pace % 1) * 60)).padStart(2, "0")}"` : "—";
 
   const ins = s.instruction;
   if (ins) {
@@ -706,10 +718,14 @@ function onNavUpdate(s) {
     maybeAnnounce(ins);
   }
 
-  // Recenter throttled (a per-tick camera move thrashes the 3D renderer).
+  // GPS-mode camera: lock onto the walker (zoom in once, then follow).
   const now = Date.now();
-  if (now - lastRecenter > 1000) {
-    map.setCenter([s.lon, s.lat]);
+  if (!navFollowed) {
+    map.easeTo({ center: [s.lon, s.lat], zoom: 16.5, pitch: 55, duration: 900 });
+    navFollowed = true;
+    lastRecenter = now;
+  } else if (now - lastRecenter > 700) {
+    map.easeTo({ center: [s.lon, s.lat], duration: 600 });
     lastRecenter = now;
   }
 }
@@ -724,6 +740,7 @@ function enterNav() {
   document.getElementById("nav-sim").disabled = false;
   document.getElementById("nav-panel").hidden = false;
   annKey = -1; aheadSaid = false; nowSaid = false; // fresh announcements
+  navStartMs = Date.now(); navFollowed = false;
   nav.start(onNavUpdate, (err) =>
     setStatus("Sem GPS (" + (err.message || "negado") + ") — toque em ▶ Simular percurso.", "warn")
   );
@@ -755,6 +772,7 @@ document.getElementById("nav-sim").addEventListener("click", () => {
   document.getElementById("nav-sim").disabled = true;
   document.getElementById("nav-off").hidden = true;
   document.querySelector("#nav-panel .nav-title").textContent = "Caminhando";
+  navStartMs = Date.now(); navFollowed = false;
   nav.simulate(onNavUpdate);
 });
 

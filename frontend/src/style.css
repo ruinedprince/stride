@@ -724,12 +724,12 @@ body {
 }
 
 .nav-metrics {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
   margin-top: 14px;
 }
 .nav-metrics > div {
-  flex: 1;
   padding: 12px 14px;
   background: var(--paper-solid);
   border: 1px solid var(--hairline);

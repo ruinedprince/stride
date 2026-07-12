@@ -88,6 +88,13 @@ function etaMsFor(remaining) {
   return remaining * perM;
 }
 
+// The route's average pace in min/km (used as the "pace" during a simulation,
+// where real elapsed time is a fast-forward and would look absurd).
+export function avgPaceMinKm() {
+  if (!route || !route.totalM) return 0;
+  return route.timeMs / 60000 / (route.totalM / 1000);
+}
+
 function emit(lon, lat, p) {
   onUpdate?.({ lon, lat, ...p, etaMs: etaMsFor(p.remaining), instruction: currentInstruction(p.covered) });
 }
@@ -135,6 +142,7 @@ export function simulate(cb, speedMps) {
       remaining: totalM - dist,
       frac: totalM ? dist / totalM : 1,
       snap: [lon, lat],
+      simulated: true,
     });
     if (dist >= totalM) {
       clearInterval(simTimer);

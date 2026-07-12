@@ -283,6 +283,11 @@ cumulative-distance span, and shows the next maneuver (icon + street + distance)
 (Web Speech API, pt-BR) announces each turn once when ~120 m ahead and again at the maneuver;
 a 🔊/🔇 button mutes it. Map recenter is throttled to 1 s so the 3D renderer doesn't thrash.
 
+During navigation the camera enters a **GPS mode** — it zooms onto the walker and follows
+(easeTo, throttled), and the panel shows four live metrics: remaining, distance covered,
+**pace (min/km)**, and arrival ETA. Pace is real elapsed/covered while walking, or the route's
+average during a simulation (sim time is a fast-forward).
+
 **Share** (Web Share API, clipboard fallback): after a route, "Compartilhar caminhada" shares
 distance + duration + a Google Maps link to the start; during a walk, "Compartilhar" shares the
 remaining distance, arrival ETA, and a Maps link to the live position ("Estou caminhando…").
