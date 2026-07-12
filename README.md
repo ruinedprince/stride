@@ -239,6 +239,15 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Pass by a POI
+
+`build_pois.py` extracts points of interest from the OSM extract into
+`frontend/public/pois.geojson` — café, mirante (viewpoint), água (drinking water/fountain),
+parque (this extract: 4 / 3 / 8 / 205). The "Passar por" chips pick a type; `pois.js` finds
+the nearest one to the start and routes **A → POI → A** (out-and-back via `generateThrough`),
+so it closes the loop and marks the POI. Guaratinguetá example: 🌄 Mirante do Cruzeiro is a
+12.4 km round trip climbing 522 m to a hilltop viewpoint.
+
 ## Loop or A→B
 
 A mode toggle at the top of the form: **Circuito** (the round_trip loop) or **Ida A→B**. In

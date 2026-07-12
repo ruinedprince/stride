@@ -1,13 +1,14 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
-import { map, add3dBuildings, addHillshade, initRouteLayers, ensureStartMarker, setDestMarker, clearAltRoute } from "./map.js";
+import { map, add3dBuildings, addHillshade, initRouteLayers, ensureStartMarker, setDestMarker, setPoiMarker, clearAltRoute } from "./map.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm } from "./ui.js";
-import { generateRoute, generateFaithful, generatePointToPoint } from "./routing.js";
+import { generateRoute, generateFaithful, generatePointToPoint, generateThrough } from "./routing.js";
 import { drawRoute } from "./render.js";
 import * as pref from "./shade.js";
 import { fetchWeather, suggest } from "./weather.js";
 import { MOODS } from "./intent.js";
+import { loadPois, nearestPoi } from "./pois.js";
 
 // ---------------------------------------------------------------------------
 // Map load — build layers in stacking order, then a cinematic tilt-in
@@ -62,9 +63,10 @@ function setMode(m) {
   });
   const ab = m === "ab";
   document.getElementById("sec-destino").hidden = !ab;
-  for (const id of ["sec-objetivo", "sec-distancia", "sec-variacao"]) {
+  for (const id of ["sec-objetivo", "sec-poi", "sec-distancia", "sec-variacao"]) {
     document.getElementById(id).hidden = ab;
   }
+  clearPoi();
   document.getElementById("compare").hidden = ab;
   document.getElementById("generate").textContent = ab ? "Gerar rota" : "Gerar caminhada";
   if (!ab) {
@@ -213,7 +215,53 @@ function applyMood(m) {
   }
   selectPref(m.pref);
   highlightMood(m.id);
+  clearPoi();
   document.getElementById("route-form").requestSubmit(); // generate right away
+}
+
+// ---------------------------------------------------------------------------
+// Pass by a POI — routes A → nearest POI of the chosen type → A (out-and-back).
+// ---------------------------------------------------------------------------
+const POI_NAMES = { cafe: "um café", viewpoint: "um mirante", water: "um ponto de água", park: "um parque" };
+
+document.querySelectorAll("#poi-row .mood").forEach((btn) => {
+  btn.addEventListener("click", () => passByPoi(btn.dataset.poi));
+});
+
+function highlightPoi(type) {
+  document.querySelectorAll("#poi-row .mood").forEach((b) => b.classList.toggle("is-active", b.dataset.poi === type));
+}
+function clearPoi() {
+  document.querySelectorAll("#poi-row .mood.is-active").forEach((b) => b.classList.remove("is-active"));
+  setPoiMarker(null);
+}
+
+async function passByPoi(type) {
+  const lat = parseFloat(document.getElementById("lat").value);
+  const lon = parseFloat(document.getElementById("lon").value);
+  const poi = nearestPoi(type, lat, lon);
+  if (!poi) {
+    setStatus("Nenhum ponto desse tipo por perto.", "warn");
+    return;
+  }
+  const btn = document.getElementById("generate");
+  setBusy(btn, true);
+  clearAltRoute();
+  clearMoodHighlight();
+  highlightPoi(type);
+  await pref.applyPreferenceOverlays();
+  setStatus("Traçando a ida e volta…", "");
+  try {
+    const resp = await generateThrough([[lon, lat], [poi.lon, poi.lat], [lon, lat]], pref.routingSpec());
+    setPoiMarker([poi.lon, poi.lat]);
+    drawRoute(resp);
+    const nm = poi.name || POI_NAMES[type];
+    setStatus(`Ida e volta por ${nm} · ${fmtKm(resp.paths[0].distance)} (${Math.round(poi.dist)} m de ida).`, "ok");
+  } catch (err) {
+    setStatus("Erro ao traçar a rota: " + err.message, "error");
+  } finally {
+    setBusy(btn, false);
+  }
 }
 
 // Geolocation
@@ -305,6 +353,7 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
 
   setBusy(btn, true);
   clearAltRoute();
+  clearPoi();
   await pref.applyPreferenceOverlays();
   setStatus(mode === "ab" ? "Traçando a rota…" : "Traçando a caminhada…", "");
 
@@ -399,6 +448,7 @@ document.getElementById("compare").addEventListener("click", async () => {
 setStart(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
 pref.updateSunArc();
 refreshWeather();
+loadPois();
 
 pref.loadManifest().then((hours) => {
   if (!hours) return;

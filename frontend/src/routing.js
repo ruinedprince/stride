@@ -37,9 +37,10 @@ export async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
   return body;
 }
 
-// Point-to-point (A→B) — a normal shortest route, no round_trip/best-of. Green
+// Route through an ordered list of [lon, lat] points — no round_trip/best-of.
+// Used for A→B (2 points) and pass-by-a-POI loops (A→POI→A, 3 points). Green
 // and shade preferences still apply via profile / per-request custom model.
-export async function generatePointToPoint(latA, lonA, latB, lonB, spec = {}) {
+export async function generateThrough(points, spec = {}) {
   const profile = spec.profile || "foot";
   const cm = spec.customModel || null;
   const base = { profile, points_encoded: false, "ch.disable": true, elevation: true };
@@ -49,12 +50,11 @@ export async function generatePointToPoint(latA, lonA, latB, lonB, spec = {}) {
     res = await fetch(GRAPHHOPPER_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ points: [[lonA, latA], [lonB, latB]], ...base, custom_model: cm }),
+      body: JSON.stringify({ points, ...base, custom_model: cm }),
     });
   } else {
     const params = new URLSearchParams();
-    params.append("point", `${latA},${lonA}`);
-    params.append("point", `${latB},${lonB}`);
+    for (const [lon, lat] of points) params.append("point", `${lat},${lon}`);
     for (const [k, v] of Object.entries(base)) params.set(k, String(v));
     res = await fetch(`${GRAPHHOPPER_URL}?${params}`);
   }
@@ -62,6 +62,10 @@ export async function generatePointToPoint(latA, lonA, latB, lonB, spec = {}) {
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.message || `HTTP ${res.status}`);
   return body;
+}
+
+export function generatePointToPoint(latA, lonA, latB, lonB, spec = {}) {
+  return generateThrough([[lonA, latA], [lonB, latB]], spec);
 }
 
 // round_trip only *targets* a distance and its variance is huge, so try N seeds.

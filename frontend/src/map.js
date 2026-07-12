@@ -55,6 +55,18 @@ export function setDestMarker(lonLat) {
   }
 }
 
+// POI marker for the "Passar por" feature (amber).
+let poiMarker = null;
+export function setPoiMarker(lonLat) {
+  if (poiMarker) {
+    poiMarker.remove();
+    poiMarker = null;
+  }
+  if (lonLat) {
+    poiMarker = new maplibregl.Marker({ color: "#c77d1a" }).setLngLat(lonLat).addTo(map);
+  }
+}
+
 function firstSymbolId() {
   return map.getStyle().layers.find((l) => l.type === "symbol")?.id;
 }
