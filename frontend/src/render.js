@@ -119,6 +119,22 @@ export function drawRoute(ghResponse, { isSample = false, loop = true } = {}) {
     : "—";
   drawElevationProfile(coords, eles);
 
+  // Comfort index — the "how", not the "where": flatness + green cover (+ shade
+  // when a shade hour is active), blended into one score.
+  const ascendPerKm = path.distance > 0 ? (path.ascend || 0) / (path.distance / 1000) : 0;
+  const flatScore = 1 - Math.min(1, Math.max(0, (ascendPerKm - 10) / 50)); // ≤10 m/km flat, ≥60 steep
+  const comps = [{ s: flatScore, w: 0.4 }, { s: gf ?? 0, w: 0.3 }];
+  if (sf != null) comps.push({ s: sf, w: 0.3 });
+  const comfort = comps.reduce((a, c) => a + c.s * c.w, 0) / comps.reduce((a, c) => a + c.w, 0);
+  const pct = Math.round(comfort * 100);
+  document.getElementById("comfort-pct").textContent = `${pct}%`;
+  const fill = document.getElementById("comfort-fill");
+  fill.style.width = `${pct}%`;
+  fill.style.background = pct >= 66 ? "var(--green)" : pct >= 40 ? "var(--sun)" : "var(--alert)";
+  document.getElementById("comfort-detail").textContent =
+    `plano ${Math.round(flatScore * 100)}% · verde ${gf == null ? "—" : Math.round(gf * 100) + "%"}` +
+    (sf != null ? ` · sombra ${Math.round(sf * 100)}%` : "");
+
   const sampleBadge = isSample ? ' <span class="sample-badge">AMOSTRA — não é rota real</span>' : "";
   setStatus(
     (isSample ? "Exibindo resposta de exemplo." : "Caminhada gerada.") + sampleBadge,

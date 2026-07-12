@@ -239,6 +239,14 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Comfort index
+
+A single "how comfortable is this walk" score, headlining the stats — the "how", not the
+"where", that no other app gives. It blends **flatness** (from ascent per km: ≤10 m/km flat,
+≥60 steep), **green cover**, and **shade** (weighted 0.4 / 0.3 / 0.3; shade only counts when a
+shade hour is active), all from data the route already computes in `render.js`. Shown as a
+colour-coded bar with a breakdown, e.g. "🌡️ 40% · plano 86% · verde 10% · sombra 10%".
+
 ## Dark mode
 
 A 🌙/☀️ toggle (persisted; defaults to the OS `prefers-color-scheme`) themes the whole UI via

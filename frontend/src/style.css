@@ -616,6 +616,51 @@ body {
 #elev-area { fill: color-mix(in srgb, var(--green) 14%, transparent); stroke: none; }
 #elev-line { fill: none; stroke: var(--green); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 
+.comfort {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  background: var(--paper-solid);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+}
+.comfort-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.comfort-head span {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.comfort-head strong {
+  font-size: 24px;
+  font-weight: 800;
+  font-stretch: 112%;
+  font-variant-numeric: tabular-nums;
+}
+.comfort-bar {
+  height: 8px;
+  margin: 8px 0 7px;
+  border-radius: 999px;
+  background: var(--well);
+  overflow: hidden;
+}
+#comfort-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--green);
+  transition: width 0.5s ease, background 0.3s ease;
+}
+#comfort-detail {
+  margin: 0;
+  font: 500 11px var(--mono);
+  color: var(--ink-faint);
+}
+
 .loop-pill {
   grid-column: 1 / -1;
   padding: 7px 12px;
