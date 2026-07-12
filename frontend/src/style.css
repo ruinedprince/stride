@@ -709,9 +709,9 @@ body {
 }
 .nav-off[hidden] { display: none; }
 
-#nav-sim {
-  width: 100%;
-  margin-top: 12px;
+.nav-actions { display: flex; gap: 8px; margin-top: 12px; }
+.nav-actions button {
+  flex: 1;
   padding: 10px;
   font: 600 13px var(--sans);
   color: var(--ink-soft);
@@ -720,8 +720,23 @@ body {
   border-radius: var(--radius-s);
   cursor: pointer;
 }
-#nav-sim:hover { background: rgba(20, 32, 26, 0.1); }
+.nav-actions button:hover { background: rgba(20, 32, 26, 0.1); }
 #nav-sim:disabled { color: var(--ink-faint); cursor: default; }
+
+#share-walk {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  font: 600 13px var(--sans);
+  color: var(--green-deep);
+  background: transparent;
+  border: 1.5px solid rgba(30, 122, 74, 0.4);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+#share-walk[hidden] { display: none; }
+#share-walk:hover { background: rgba(30, 122, 74, 0.08); border-color: var(--green); }
 
 .nav-dot {
   width: 18px;

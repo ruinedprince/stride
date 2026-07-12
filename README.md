@@ -252,6 +252,10 @@ cumulative-distance span, and shows the next maneuver (icon + street + distance)
 (Web Speech API, pt-BR) announces each turn once when ~120 m ahead and again at the maneuver;
 a 🔊/🔇 button mutes it. Map recenter is throttled to 1 s so the 3D renderer doesn't thrash.
 
+**Share** (Web Share API, clipboard fallback): after a route, "Compartilhar caminhada" shares
+distance + duration + a Google Maps link to the start; during a walk, "Compartilhar" shares the
+remaining distance, arrival ETA, and a Maps link to the live position ("Estou caminhando…").
+
 ## Pass by a POI
 
 `build_pois.py` extracts points of interest from the OSM extract into

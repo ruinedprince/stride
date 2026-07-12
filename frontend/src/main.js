@@ -2,7 +2,7 @@
 import { map, add3dBuildings, addHillshade, initRouteLayers, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
-import { setStatus, setBusy, fmtKm } from "./ui.js";
+import { setStatus, setBusy, fmtKm, fmtDuration } from "./ui.js";
 import { generateRoute, generateFaithful, generatePointToPoint, generateThrough } from "./routing.js";
 import { drawRoute } from "./render.js";
 import * as pref from "./shade.js";
@@ -449,10 +449,49 @@ document.getElementById("compare").addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 // Live navigation
 // ---------------------------------------------------------------------------
+let lastRoute = null; // { distanceM, timeMs } of the drawn route, for sharing
+let lastNav = null; // latest live-nav state, for sharing
+
 function afterRoute(path) {
   nav.setRoute(path);
+  lastRoute = { distanceM: path.distance, timeMs: path.time };
   document.getElementById("start-walk").hidden = false;
+  document.getElementById("share-walk").hidden = false;
 }
+
+function buildShareText(live) {
+  const lat = document.getElementById("lat").value;
+  const lon = document.getElementById("lon").value;
+  if (live && lastNav) {
+    const eta = new Date(Date.now() + (lastNav.etaMs || 0)).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const here = `https://www.google.com/maps?q=${lastNav.lat.toFixed(5)},${lastNav.lon.toFixed(5)}`;
+    return `🚶 Estou caminhando pelo Stride — faltam ${fmtDist(lastNav.remaining)}, chego ~${eta}. Onde estou: ${here}`;
+  }
+  const maps = `https://www.google.com/maps?q=${lat},${lon}`;
+  if (lastRoute) {
+    return `🚶 Vou caminhar ${fmtKm(lastRoute.distanceM)} pelo Stride (~${fmtDuration(lastRoute.timeMs)}). Partida: ${maps}`;
+  }
+  return "🚶 Caminhando pelo Stride.";
+}
+
+async function share(live, btn) {
+  const text = buildShareText(live);
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "Stride", text });
+    } else {
+      await navigator.clipboard.writeText(text);
+      const orig = btn.textContent;
+      btn.textContent = "✓ Copiado";
+      setTimeout(() => { btn.textContent = orig; }, 1600);
+    }
+  } catch {
+    /* user cancelled the share sheet — ignore */
+  }
+}
+
+document.getElementById("share-walk").addEventListener("click", (e) => share(false, e.currentTarget));
+document.getElementById("nav-share").addEventListener("click", (e) => share(true, e.currentTarget));
 
 const OFF_ROUTE_M = 35;
 const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1).replace(".", ",")} km` : `${Math.round(m)} m`);
@@ -503,6 +542,7 @@ function onNavUpdate(s) {
     return;
   }
   setNavMarker([s.lon, s.lat]);
+  lastNav = { remaining: s.remaining, etaMs: s.etaMs, lon: s.lon, lat: s.lat };
   document.getElementById("nav-bar").style.width = `${Math.round((s.frac || 0) * 100)}%`;
   document.getElementById("nav-remaining").textContent = fmtDist(s.remaining);
   const arrival = new Date(Date.now() + (s.etaMs || 0));
@@ -526,7 +566,7 @@ function onNavUpdate(s) {
 }
 
 function enterNav() {
-  for (const id of ["route-form", "weather-card", "stats", "start-walk"]) {
+  for (const id of ["route-form", "weather-card", "stats", "start-walk", "share-walk"]) {
     document.getElementById(id).hidden = true;
   }
   setStatus("", "");
@@ -545,7 +585,7 @@ function exitNav() {
   setNavMarker(null);
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   document.getElementById("nav-panel").hidden = true;
-  for (const id of ["route-form", "weather-card", "stats", "start-walk"]) {
+  for (const id of ["route-form", "weather-card", "stats", "start-walk", "share-walk"]) {
     document.getElementById(id).hidden = false;
   }
 }
