@@ -1,5 +1,5 @@
 // GraphHopper round_trip requests and the best-of-N selection.
-import { GRAPHHOPPER_URL, BEST_OF, DIST_BAND } from "./config.js";
+import { GRAPHHOPPER_URL, BEST_OF, BEST_OF_SHADE, DIST_BAND } from "./config.js";
 import { fractionIn } from "./geo.js";
 
 export async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
@@ -74,7 +74,8 @@ export function generatePointToPoint(latA, lonA, latB, lonB, spec = {}) {
 // distance-closest — otherwise a loop can hit the target while avoiding all shade.
 export async function generateFaithful(lat, lon, distanceKm, baseSeed, spec, rankFC = null) {
   const target = distanceKm * 1000;
-  const seeds = Array.from({ length: BEST_OF }, (_, i) => baseSeed + i);
+  const count = spec.customModel ? BEST_OF_SHADE : BEST_OF; // shade POSTs are heavy
+  const seeds = Array.from({ length: count }, (_, i) => baseSeed + i);
   const settled = await Promise.all(
     seeds.map((s) =>
       generateRoute(lat, lon, distanceKm, s, spec).then((r) => {

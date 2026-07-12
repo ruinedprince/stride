@@ -2,7 +2,7 @@
 // continuous sun interpolation, the two-layer shade cross-dissolve, the sun arc,
 // and how a preference maps to a GraphHopper routing spec.
 import { map } from "./map.js";
-import { CARDINAL, SHADE_OPACITY } from "./config.js";
+import { CARDINAL, SHADE_OPACITY, TOP_SHADE_POLYS } from "./config.js";
 import { fmtHour } from "./ui.js";
 
 // Shade is pre-baked at whole hours (build_shade_areas.py); shade-index.json
@@ -76,14 +76,18 @@ export function prefLabel() {
 }
 
 // Custom model from a shade display geojson — polygons become `areas`, edges
-// outside them get priority × 0.3 (verified identical to shade_<h>.json).
+// outside them get priority × 0.3. Only the largest TOP_SHADE_POLYS polygons go
+// in the per-request model (payload/speed); the display overlay still shows all.
 function buildShadeModel(fc) {
-  const priority = fc.features.map((f, i) => ({
+  const feats = [...fc.features]
+    .sort((a, b) => (b.properties?.area_m2 || 0) - (a.properties?.area_m2 || 0))
+    .slice(0, TOP_SHADE_POLYS);
+  const priority = feats.map((f, i) => ({
     [i === 0 ? "if" : "else_if"]: `in_${f.id}`,
     multiply_by: 1.0,
   }));
   priority.push({ else: "", multiply_by: 0.3 });
-  return { priority, areas: { type: "FeatureCollection", features: fc.features } };
+  return { priority, areas: { type: "FeatureCollection", features: feats } };
 }
 
 export async function ensureShade(h) {
