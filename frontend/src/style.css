@@ -196,6 +196,38 @@ body {
 }
 
 /* distance chips */
+/* field head with a unit toggle */
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+.field-head .field-label { margin-bottom: 0; }
+
+.unit-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--well);
+  border-radius: 999px;
+}
+.unit-toggle button {
+  padding: 3px 10px;
+  font: 700 11px var(--mono);
+  color: var(--ink-faint);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.unit-toggle button.is-active {
+  color: var(--ink);
+  background: var(--paper-solid);
+  box-shadow: 0 1px 4px rgba(16, 26, 20, 0.12);
+}
+
 /* objective / mood chips */
 .mood-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .mood {

@@ -50,7 +50,7 @@ function readForm() {
   return {
     lat: parseFloat(document.getElementById("lat").value),
     lon: parseFloat(document.getElementById("lon").value),
-    km: parseFloat(document.getElementById("distance").value),
+    km: currentKm(),
     seed: parseInt(document.getElementById("seed").value || "0", 10),
   };
 }
@@ -83,18 +83,57 @@ sunSlider.addEventListener("input", () => {
   clearMoodHighlight();
 });
 
-// Distance chips
+// Distance / duration — the control reads either km or minutes; "min" converts
+// to km at GraphHopper's foot pace (~5 km/h) before routing.
+const MIN_PER_KM = 12;
+const distInput = document.getElementById("distance");
+let unit = "km"; // "km" | "min"
+
+const chipValue = (chip) => (unit === "min" ? chip.dataset.min : chip.dataset.km);
+
+function markActiveChip() {
+  document.querySelectorAll("#distance-chips .chip").forEach((b) => b.classList.toggle("is-active", chipValue(b) === distInput.value));
+}
+function relabelChips() {
+  document.querySelectorAll("#distance-chips .chip").forEach((b) => {
+    b.textContent = unit === "min" ? `${b.dataset.min} min` : `${b.dataset.km} km`;
+  });
+}
+function setUnit(u) {
+  if (u === unit) return;
+  const val = parseFloat(distInput.value);
+  if (!Number.isNaN(val)) {
+    distInput.value = u === "min" ? String(Math.round(val * MIN_PER_KM)) : String(+(val / MIN_PER_KM).toFixed(1));
+  }
+  unit = u;
+  document.querySelectorAll("#unit-toggle button").forEach((b) => b.classList.toggle("is-active", b.dataset.unit === u));
+  relabelChips();
+  markActiveChip();
+}
+document.querySelectorAll("#unit-toggle button").forEach((btn) => {
+  btn.addEventListener("click", () => { setUnit(btn.dataset.unit); clearMoodHighlight(); });
+});
+
+// Set distance in km (objectives + weather card use this); forces km unit.
 function setDistance(km) {
-  document.getElementById("distance").value = String(km);
-  document.querySelectorAll("#distance-chips .chip").forEach((b) => b.classList.toggle("is-active", b.dataset.km === String(km)));
+  setUnit("km");
+  distInput.value = String(km);
+  markActiveChip();
 }
 document.querySelectorAll("#distance-chips .chip").forEach((btn) => {
-  btn.addEventListener("click", () => { setDistance(btn.dataset.km); clearMoodHighlight(); });
+  btn.addEventListener("click", () => { distInput.value = chipValue(btn); markActiveChip(); clearMoodHighlight(); });
 });
-document.getElementById("distance").addEventListener("input", (e) => {
-  document.querySelectorAll("#distance-chips .chip").forEach((b) => b.classList.toggle("is-active", b.dataset.km === e.target.value));
-  clearMoodHighlight();
-});
+distInput.addEventListener("input", () => { markActiveChip(); clearMoodHighlight(); });
+
+// Current target in km + a human label ("45 min" / "6 km").
+function currentKm() {
+  const raw = parseFloat(distInput.value);
+  return unit === "min" ? raw / MIN_PER_KM : raw;
+}
+function targetLabel() {
+  const raw = parseFloat(distInput.value);
+  return unit === "min" ? `${Math.round(raw)} min` : `${raw} km`;
+}
 
 // ---------------------------------------------------------------------------
 // Objectives / moods — one-tap "how do you want to walk", configures the same
@@ -221,7 +260,7 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
     const note = offBy > 0.2
       ? " — a malha da região não tem um circuito mais próximo"
       : ` (melhor de ${best.tried} variações)`;
-    setStatus(`Alvo ${km} km → ${fmtKm(best.distance)}${note}.`, "ok");
+    setStatus(`Alvo ${targetLabel()} → ${fmtKm(best.distance)}${note}.`, "ok");
   } catch (err) {
     if (err instanceof TypeError) {
       try {

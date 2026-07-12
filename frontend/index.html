@@ -64,12 +64,18 @@
           </section>
 
           <section class="field">
-            <span class="field-label">Distância</span>
+            <div class="field-head">
+              <span class="field-label">Distância</span>
+              <div class="unit-toggle" id="unit-toggle" role="group" aria-label="Unidade">
+                <button type="button" data-unit="km" class="is-active">km</button>
+                <button type="button" data-unit="min">min</button>
+              </div>
+            </div>
             <div class="chips" id="distance-chips">
-              <button type="button" class="chip" data-km="3">3 km</button>
-              <button type="button" class="chip is-active" data-km="6">6 km</button>
-              <button type="button" class="chip" data-km="10">10 km</button>
-              <input id="distance" type="number" min="1" max="30" step="0.5" value="6" aria-label="Distância em km" />
+              <button type="button" class="chip" data-km="3" data-min="30">3 km</button>
+              <button type="button" class="chip is-active" data-km="6" data-min="45">6 km</button>
+              <button type="button" class="chip" data-km="10" data-min="60">10 km</button>
+              <input id="distance" type="number" min="1" max="180" step="0.5" value="6" aria-label="Distância" />
             </div>
           </section>
 

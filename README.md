@@ -239,6 +239,13 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Distance or duration
+
+The distance control has a **km / min** toggle. In "min" mode the chips become 30/45/60 min
+and the input is minutes; on generate it converts to km at GraphHopper's foot pace
+(~5 km/h, `MIN_PER_KM = 12`) so "45 min" targets ~3.75 km and the stats show the actual
+time. Objectives and the weather card always set km and flip the toggle back.
+
 ## Objectives
 
 One-tap "how do you want to walk today" shortcuts (`intent.js`): Relaxar, Treino, Explorar,
