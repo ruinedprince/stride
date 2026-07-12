@@ -7,6 +7,7 @@ import { generateRoute, generateFaithful } from "./routing.js";
 import { drawRoute } from "./render.js";
 import * as pref from "./shade.js";
 import { fetchWeather, suggest } from "./weather.js";
+import { MOODS } from "./intent.js";
 
 // ---------------------------------------------------------------------------
 // Map load — build layers in stacking order, then a cinematic tilt-in
@@ -69,7 +70,7 @@ function selectPref(prefName) {
   return pref.applyPreferenceOverlays();
 }
 document.querySelectorAll("#pref-segment .seg").forEach((btn) => {
-  btn.addEventListener("click", () => selectPref(btn.dataset.pref));
+  btn.addEventListener("click", () => { selectPref(btn.dataset.pref); clearMoodHighlight(); });
 });
 
 // Continuous sun slider — moves the sun, tint and 3D light every frame, and
@@ -79,6 +80,7 @@ sunSlider.addEventListener("input", () => {
   pref.setHour(parseFloat(sunSlider.value));
   pref.applySunVisuals();
   pref.updateShadeBlend();
+  clearMoodHighlight();
 });
 
 // Distance chips
@@ -87,11 +89,46 @@ function setDistance(km) {
   document.querySelectorAll("#distance-chips .chip").forEach((b) => b.classList.toggle("is-active", b.dataset.km === String(km)));
 }
 document.querySelectorAll("#distance-chips .chip").forEach((btn) => {
-  btn.addEventListener("click", () => setDistance(btn.dataset.km));
+  btn.addEventListener("click", () => { setDistance(btn.dataset.km); clearMoodHighlight(); });
 });
 document.getElementById("distance").addEventListener("input", (e) => {
   document.querySelectorAll("#distance-chips .chip").forEach((b) => b.classList.toggle("is-active", b.dataset.km === e.target.value));
+  clearMoodHighlight();
 });
+
+// ---------------------------------------------------------------------------
+// Objectives / moods — one-tap "how do you want to walk", configures the same
+// controls and generates immediately.
+// ---------------------------------------------------------------------------
+const moodRow = document.getElementById("mood-row");
+for (const m of MOODS) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "mood";
+  btn.dataset.mood = m.id;
+  btn.innerHTML = `<span class="mood-icon">${m.icon}</span>${m.label}`;
+  btn.addEventListener("click", () => applyMood(m));
+  moodRow.appendChild(btn);
+}
+
+function highlightMood(id) {
+  moodRow.querySelectorAll(".mood").forEach((b) => b.classList.toggle("is-active", b.dataset.mood === id));
+}
+function clearMoodHighlight() {
+  moodRow.querySelectorAll(".mood.is-active").forEach((b) => b.classList.remove("is-active"));
+}
+
+function applyMood(m) {
+  setDistance(m.km);
+  if (m.shuffle) document.getElementById("seed").value = String(Math.floor(Math.random() * 1000));
+  if (m.pref === "shade" && m.hour != null) {
+    sunSlider.value = String(m.hour);
+    pref.setHour(m.hour);
+  }
+  selectPref(m.pref);
+  highlightMood(m.id);
+  document.getElementById("route-form").requestSubmit(); // generate right away
+}
 
 // Geolocation
 document.getElementById("locate").addEventListener("click", () => {

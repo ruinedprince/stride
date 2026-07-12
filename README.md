@@ -239,6 +239,14 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Objectives
+
+One-tap "how do you want to walk today" shortcuts (`intent.js`): Relaxar, Treino, Explorar,
+Com o cão, Fotografia. Each maps to concrete settings — distance + preference (+ shade hour,
++ a random seed for Explorar) — reusing the same `selectPref()`/`setDistance()` controls the
+weather card uses, then generates immediately. Fine-tuning any control afterward de-selects
+the objective.
+
 ## Weather suggestions
 
 On load (and after geolocating), Stride reads the current conditions near the start point
