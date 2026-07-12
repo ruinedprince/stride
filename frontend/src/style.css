@@ -753,6 +753,28 @@ body {
 }
 .route-actions button:hover { background: rgba(30, 122, 74, 0.08); border-color: var(--green); }
 
+/* explored progress */
+.explored { margin: 0 0 12px; }
+.explored[hidden] { display: none; }
+.explored-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--well);
+  overflow: hidden;
+}
+#explored-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--green), var(--sun));
+  transition: width 0.4s ease;
+}
+#explored-text {
+  margin: 6px 0 0;
+  font: 500 11.5px var(--mono);
+  color: var(--ink-soft);
+}
+
 /* saved walks list */
 #saved-walks { margin-top: 20px; }
 #saved-walks[hidden] { display: none; }

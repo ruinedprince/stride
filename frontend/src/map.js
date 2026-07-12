@@ -190,3 +190,19 @@ export function clearAltRoute() {
   const src = map.getSource("route-alt");
   if (src) src.setData({ type: "FeatureCollection", features: [] });
 }
+
+// Walked-streets overlay ("your territory") — under the route lines.
+export function initWalkedLayer() {
+  map.addSource("walked", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({
+    id: "walked-fill",
+    type: "fill",
+    source: "walked",
+    paint: { "fill-color": "#1e7a4a", "fill-opacity": 0.25 },
+  });
+}
+
+export function setWalkedData(fc) {
+  const src = map.getSource("walked");
+  if (src) src.setData(fc);
+}

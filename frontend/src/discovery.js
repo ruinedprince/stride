@@ -29,12 +29,12 @@ function decimate(coords) {
   return out;
 }
 
-function corridorFeatures() {
+function corridorFeatures(cap = CAP) {
   const feats = [];
   let idx = 0;
   for (const w of getWalks()) {
     const pts = decimate(w.coords || []);
-    for (let i = 1; i < pts.length && feats.length < CAP; i++) {
+    for (let i = 1; i < pts.length && feats.length < cap; i++) {
       const [x1, y1] = pts[i - 1];
       const [x2, y2] = pts[i];
       const mx = 111320 * Math.cos((y1 * Math.PI) / 180);
@@ -59,4 +59,31 @@ export function avoidModel() {
   if (!feats.length) return null;
   const priority = feats.map((f, i) => ({ [i === 0 ? "if" : "else_if"]: `in_${f.id}`, multiply_by: 0.2 }));
   return { priority, areas: { type: "FeatureCollection", features: feats } };
+}
+
+// Walked corridors for the map overlay ("your territory").
+export function walkedGeoJSON() {
+  return { type: "FeatureCollection", features: corridorFeatures(400) };
+}
+
+// --- % of the city explored --------------------------------------------------
+let GRID = { cellDeg: 0.0014, total: 8251 }; // replaced by street-grid.json
+
+export async function loadGrid() {
+  try {
+    GRID = await fetch("/street-grid.json").then((r) => r.json());
+  } catch {
+    /* keep the baked-in fallback */
+  }
+  return GRID;
+}
+
+// Distinct ~150 m street cells the saved walks touch, over the city total.
+export function exploredStats() {
+  const cd = GRID.cellDeg;
+  const cells = new Set();
+  for (const w of getWalks()) {
+    for (const c of w.coords || []) cells.add(`${Math.floor(c[0] / cd)},${Math.floor(c[1] / cd)}`);
+  }
+  return { cells: cells.size, total: GRID.total, pct: GRID.total ? (cells.size / GRID.total) * 100 : 0 };
 }

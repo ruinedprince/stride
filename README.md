@@ -239,6 +239,13 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## City explored (%)
+
+`build_grid.py` counts the walkable **street cells** in the bbox on a ~150 m grid (8 251 here)
+— the denominator. At runtime `exploredStats()` counts the distinct cells the saved walks
+touch and shows "🗺️ 0,7% de Guaratinguetá · 58 de 8251 quarteirões" with a progress bar, plus a
+green **walked-streets overlay** on the map ("your territory"). All from localStorage, no backend.
+
 ## Avoid already-walked streets (discovery)
 
 When there are saved walks, an "Evitar ruas que já andei" toggle appears. `discovery.js`

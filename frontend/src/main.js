@@ -1,5 +1,5 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
-import { map, add3dBuildings, addHillshade, initRouteLayers, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
+import { map, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm, fmtDuration } from "./ui.js";
@@ -11,7 +11,7 @@ import { MOODS } from "./intent.js";
 import { loadPois, nearestPoi } from "./pois.js";
 import * as nav from "./navigation.js";
 import { getWalks, saveWalk, deleteWalk, updateWalk } from "./storage.js";
-import { avoidModel } from "./discovery.js";
+import { avoidModel, walkedGeoJSON, loadGrid, exploredStats } from "./discovery.js";
 
 // ---------------------------------------------------------------------------
 // Map load — build layers in stacking order, then a cinematic tilt-in
@@ -22,7 +22,9 @@ map.on("load", async () => {
   pref.setSunLight(null);
   await pref.initGreenOverlay();
   pref.initShadeLayers();
+  initWalkedLayer();
   initRouteLayers();
+  setWalkedData(walkedGeoJSON());
   ensureStartMarker(DEFAULT_CENTER.lon, DEFAULT_CENTER.lat);
   if (!REDUCED) {
     map.easeTo({ pitch: 56, bearing: -18, zoom: 14.4, duration: 2400 });
@@ -586,6 +588,18 @@ function renderSaved() {
     li.querySelector(".del").addEventListener("click", () => { deleteWalk(w.id); renderSaved(); });
     list.appendChild(li);
   }
+
+  // Explored % + the walked-streets overlay ("your territory").
+  const exEl = document.getElementById("explored-stat");
+  exEl.hidden = walks.length === 0;
+  if (walks.length) {
+    const ex = exploredStats();
+    document.getElementById("explored-fill").style.width = `${Math.min(100, ex.pct)}%`;
+    document.getElementById("explored-text").textContent =
+      `🗺️ ${ex.pct.toFixed(1).replace(".", ",")}% de Guaratinguetá · ${ex.cells} de ${ex.total} quarteirões`;
+  }
+  setWalkedData(walkedGeoJSON());
+
   updateAvoidVisibility();
 }
 
@@ -712,6 +726,7 @@ setStart(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
 pref.updateSunArc();
 refreshWeather();
 loadPois();
+loadGrid().then(renderSaved);
 renderSaved();
 
 pref.loadManifest().then((hours) => {
