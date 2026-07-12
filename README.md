@@ -239,6 +239,13 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Saved walks
+
+`storage.js` keeps walks in `localStorage` (no backend). "Salvar" (shown with a route)
+stores enough of the GraphHopper path — coordinates, instructions, distance, time — to
+redraw and re-navigate it offline. "Minhas caminhadas" lists them with load (tap to
+redraw), 👍/👎 rating, ★ favorite, and delete; capped at 30.
+
 ## Live navigation
 
 `navigation.js` follows the walker along a generated route. `setRoute` stores the GraphHopper

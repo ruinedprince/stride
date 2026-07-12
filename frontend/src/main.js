@@ -10,6 +10,7 @@ import { fetchWeather, suggest } from "./weather.js";
 import { MOODS } from "./intent.js";
 import { loadPois, nearestPoi } from "./pois.js";
 import * as nav from "./navigation.js";
+import { getWalks, saveWalk, deleteWalk, updateWalk } from "./storage.js";
 
 // ---------------------------------------------------------------------------
 // Map load — build layers in stacking order, then a cinematic tilt-in
@@ -451,12 +452,14 @@ document.getElementById("compare").addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 let lastRoute = null; // { distanceM, timeMs } of the drawn route, for sharing
 let lastNav = null; // latest live-nav state, for sharing
+let lastPath = null; // full GH path of the drawn route, for saving
 
 function afterRoute(path) {
   nav.setRoute(path);
+  lastPath = path;
   lastRoute = { distanceM: path.distance, timeMs: path.time };
   document.getElementById("start-walk").hidden = false;
-  document.getElementById("share-walk").hidden = false;
+  document.getElementById("route-actions").hidden = false;
 }
 
 function buildShareText(live) {
@@ -492,6 +495,70 @@ async function share(live, btn) {
 
 document.getElementById("share-walk").addEventListener("click", (e) => share(false, e.currentTarget));
 document.getElementById("nav-share").addEventListener("click", (e) => share(true, e.currentTarget));
+
+// --- saved walks (localStorage) ---------------------------------------------
+function walkName(path) {
+  const label = pref.prefLabel() || (mode === "ab" ? "A→B" : "normal");
+  const d = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return `${fmtKm(path.distance)} · ${label} · ${d}`;
+}
+
+document.getElementById("save-walk").addEventListener("click", (e) => {
+  if (!lastPath) return;
+  saveWalk({
+    id: `${Date.now()}-${Math.floor(Math.random() * 1e4)}`,
+    ts: Date.now(),
+    name: walkName(lastPath),
+    distanceM: lastPath.distance,
+    timeM: lastPath.time,
+    ascendM: lastPath.ascend ?? null,
+    loop: mode !== "ab",
+    coords: lastPath.points.coordinates,
+    instructions: lastPath.instructions || [],
+    favorite: false,
+    rating: 0,
+  });
+  renderSaved();
+  const b = e.currentTarget, o = b.textContent;
+  b.textContent = "✓ Salva";
+  setTimeout(() => { b.textContent = o; }, 1500);
+});
+
+function loadWalk(w) {
+  const path = { distance: w.distanceM, time: w.timeM, ascend: w.ascendM, points: { coordinates: w.coords }, instructions: w.instructions };
+  drawRoute({ paths: [path] }, { loop: w.loop !== false });
+  afterRoute(path);
+  setStatus(`Carregada: ${w.name}.`, "ok");
+}
+
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function renderSaved() {
+  const walks = getWalks();
+  document.getElementById("saved-walks").hidden = walks.length === 0;
+  document.getElementById("saved-count").textContent = walks.length || "";
+  const list = document.getElementById("saved-list");
+  list.innerHTML = "";
+  for (const w of walks) {
+    const li = document.createElement("li");
+    li.className = "saved-item";
+    li.innerHTML =
+      `<button type="button" class="saved-load">` +
+        `<span class="saved-name">${w.favorite ? "★ " : ""}${esc(w.name)}</span>` +
+        `<span class="saved-meta">${fmtKm(w.distanceM)} · ~${fmtDuration(w.timeM)}</span>` +
+      `</button>` +
+      `<button type="button" class="icon-btn up ${w.rating === 1 ? "on" : ""}" title="Gostei">👍</button>` +
+      `<button type="button" class="icon-btn down ${w.rating === -1 ? "on" : ""}" title="Não curti">👎</button>` +
+      `<button type="button" class="icon-btn fav ${w.favorite ? "on" : ""}" title="Favorita">${w.favorite ? "★" : "☆"}</button>` +
+      `<button type="button" class="icon-btn del" title="Excluir">🗑</button>`;
+    li.querySelector(".saved-load").addEventListener("click", () => loadWalk(w));
+    li.querySelector(".up").addEventListener("click", () => { updateWalk(w.id, { rating: w.rating === 1 ? 0 : 1 }); renderSaved(); });
+    li.querySelector(".down").addEventListener("click", () => { updateWalk(w.id, { rating: w.rating === -1 ? 0 : -1 }); renderSaved(); });
+    li.querySelector(".fav").addEventListener("click", () => { updateWalk(w.id, { favorite: !w.favorite }); renderSaved(); });
+    li.querySelector(".del").addEventListener("click", () => { deleteWalk(w.id); renderSaved(); });
+    list.appendChild(li);
+  }
+}
 
 const OFF_ROUTE_M = 35;
 const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1).replace(".", ",")} km` : `${Math.round(m)} m`);
@@ -566,7 +633,7 @@ function onNavUpdate(s) {
 }
 
 function enterNav() {
-  for (const id of ["route-form", "weather-card", "stats", "start-walk", "share-walk"]) {
+  for (const id of ["route-form", "weather-card", "stats", "start-walk", "route-actions", "saved-walks"]) {
     document.getElementById(id).hidden = true;
   }
   setStatus("", "");
@@ -585,9 +652,10 @@ function exitNav() {
   setNavMarker(null);
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   document.getElementById("nav-panel").hidden = true;
-  for (const id of ["route-form", "weather-card", "stats", "start-walk", "share-walk"]) {
+  for (const id of ["route-form", "weather-card", "stats", "start-walk", "route-actions"]) {
     document.getElementById(id).hidden = false;
   }
+  renderSaved();
 }
 
 if (import.meta.env?.DEV) window.__nav = nav; // dev-only handle for debugging
@@ -615,6 +683,7 @@ setStart(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
 pref.updateSunArc();
 refreshWeather();
 loadPois();
+renderSaved();
 
 pref.loadManifest().then((hours) => {
   if (!hours) return;

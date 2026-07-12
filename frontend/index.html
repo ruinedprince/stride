@@ -170,7 +170,10 @@
         </dl>
 
         <button type="button" id="start-walk" hidden>Iniciar caminhada</button>
-        <button type="button" id="share-walk" hidden>Compartilhar caminhada</button>
+        <div class="route-actions" id="route-actions" hidden>
+          <button type="button" id="share-walk">Compartilhar</button>
+          <button type="button" id="save-walk">Salvar</button>
+        </div>
 
         <div id="nav-panel" hidden>
           <div class="nav-head">
@@ -198,6 +201,14 @@
             <button type="button" id="nav-sim">▶ Simular</button>
           </div>
         </div>
+
+        <section id="saved-walks" hidden>
+          <div class="saved-head">
+            <span class="field-label">Minhas caminhadas</span>
+            <span class="saved-count" id="saved-count"></span>
+          </div>
+          <ul id="saved-list"></ul>
+        </section>
       </aside>
     </div>
     <script type="module" src="./src/main.js"></script>

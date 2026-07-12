@@ -723,9 +723,10 @@ body {
 .nav-actions button:hover { background: rgba(20, 32, 26, 0.1); }
 #nav-sim:disabled { color: var(--ink-faint); cursor: default; }
 
-#share-walk {
-  width: 100%;
-  margin-top: 8px;
+.route-actions { display: flex; gap: 8px; margin-top: 8px; }
+.route-actions[hidden] { display: none; }
+.route-actions button {
+  flex: 1;
   padding: 10px;
   font: 600 13px var(--sans);
   color: var(--green-deep);
@@ -735,8 +736,51 @@ body {
   cursor: pointer;
   transition: all 0.15s ease;
 }
-#share-walk[hidden] { display: none; }
-#share-walk:hover { background: rgba(30, 122, 74, 0.08); border-color: var(--green); }
+.route-actions button:hover { background: rgba(30, 122, 74, 0.08); border-color: var(--green); }
+
+/* saved walks list */
+#saved-walks { margin-top: 20px; }
+#saved-walks[hidden] { display: none; }
+.saved-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.saved-head .field-label { margin-bottom: 0; }
+.saved-count { font: 600 11px var(--mono); color: var(--ink-faint); }
+#saved-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.saved-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  background: var(--paper-solid);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+}
+.saved-item .saved-load {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.saved-name { font: 700 13px var(--sans); color: var(--ink); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.saved-meta { font: 500 11px var(--mono); color: var(--ink-faint); }
+.saved-item .icon-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  line-height: 1;
+  background: var(--well);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+.saved-item .icon-btn:hover { background: rgba(20, 32, 26, 0.1); }
+.saved-item .icon-btn.on { color: var(--sun); }
+.saved-item .icon-btn.up.on { color: var(--green); }
+.saved-item .icon-btn.down.on { color: var(--alert); }
 
 .nav-dot {
   width: 18px;
