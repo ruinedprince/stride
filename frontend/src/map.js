@@ -8,9 +8,20 @@ import { DEFAULT_CENTER, REDUCED, HEIGHT_EXAGGERATION } from "./config.js";
 // pmtiles:// protocol so MapLibre streams building vector tiles per viewport.
 maplibregl.addProtocol("pmtiles", new Protocol().tile);
 
+export const MAP_STYLES = {
+  light: "https://tiles.openfreemap.org/styles/positron",
+  dark: "https://tiles.openfreemap.org/styles/dark",
+};
+
+// Initial theme: saved choice, else the OS preference. Set the attribute now so
+// the panel paints themed from the first frame.
+const savedTheme = (() => { try { return localStorage.getItem("stride.theme"); } catch { return null; } })();
+const initialDark = savedTheme ? savedTheme === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+document.documentElement.dataset.theme = initialDark ? "dark" : "light";
+
 export const map = new maplibregl.Map({
   container: "map",
-  style: "https://tiles.openfreemap.org/styles/positron",
+  style: initialDark ? MAP_STYLES.dark : MAP_STYLES.light,
   center: [DEFAULT_CENTER.lon, DEFAULT_CENTER.lat],
   zoom: 13.2,
   pitch: 0,
@@ -88,6 +99,8 @@ function firstSymbolId() {
   return map.getStyle().layers.find((l) => l.type === "symbol")?.id;
 }
 
+const isDark = () => document.documentElement.dataset.theme === "dark";
+
 export function add3dBuildings() {
   // Hide OpenMapTiles' own sparse building layer — we replace it with the full
   // bbox footprints (OSM + Microsoft ML) that also cast the shadows.
@@ -108,13 +121,9 @@ export function add3dBuildings() {
       "source-layer": "buildings",
       minzoom: 13,
       paint: {
-        "fill-extrusion-color": [
-          "interpolate", ["linear"], ["get", "h"],
-          3, "#e7e1d4",
-          8, "#d8cdb8",
-          16, "#c2a988",
-          30, "#a98a6a",
-        ],
+        "fill-extrusion-color": isDark()
+          ? ["interpolate", ["linear"], ["get", "h"], 3, "#2c322d", 8, "#363c35", 16, "#454b3d", 30, "#565b46"]
+          : ["interpolate", ["linear"], ["get", "h"], 3, "#e7e1d4", 8, "#d8cdb8", 16, "#c2a988", 30, "#a98a6a"],
         "fill-extrusion-height": ["*", ["get", "h"], HEIGHT_EXAGGERATION],
         "fill-extrusion-base": 0,
         "fill-extrusion-opacity": 0.92,
@@ -143,12 +152,19 @@ export function addHillshade() {
         id: "hillshade",
         type: "hillshade",
         source: "dem",
-        paint: {
-          "hillshade-shadow-color": "#5b5048",
-          "hillshade-accent-color": "#6b5a48",
-          "hillshade-highlight-color": "#fffdf7",
-          "hillshade-exaggeration": 0.5,
-        },
+        paint: isDark()
+          ? {
+              "hillshade-shadow-color": "#05070a",
+              "hillshade-accent-color": "#0c0f0c",
+              "hillshade-highlight-color": "#3d443d",
+              "hillshade-exaggeration": 0.4,
+            }
+          : {
+              "hillshade-shadow-color": "#5b5048",
+              "hillshade-accent-color": "#6b5a48",
+              "hillshade-highlight-color": "#fffdf7",
+              "hillshade-exaggeration": 0.5,
+            },
       },
       firstSymbolId()
     );

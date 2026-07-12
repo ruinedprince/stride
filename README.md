@@ -239,6 +239,14 @@ approximate. Greenness is measured as the **length-weighted** share of route seg
 whose midpoint falls in a green polygon — point-count shares are biased by uneven
 point density and were abandoned.
 
+## Dark mode
+
+A 🌙/☀️ toggle (persisted; defaults to the OS `prefers-color-scheme`) themes the whole UI via
+CSS variables and swaps the base map between OpenFreeMap **positron** (light) and **dark**.
+Swapping the style drops custom sources/layers, so `buildLayers()` rebuilds them (buildings,
+hillshade, shade/green, route, walked) and restores the drawn route; the 3D buildings and
+hillshade pick darker palettes in dark mode so they don't wash out the dark base.
+
 ## City explored (%)
 
 `build_grid.py` counts the walkable **street cells** in the bbox on a ~150 m grid (8 251 here)

@@ -1,5 +1,5 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
-import { map, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
+import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm, fmtDuration } from "./ui.js";
@@ -14,17 +14,28 @@ import { getWalks, saveWalk, deleteWalk, updateWalk } from "./storage.js";
 import { avoidModel, walkedGeoJSON, loadGrid, exploredStats } from "./discovery.js";
 
 // ---------------------------------------------------------------------------
-// Map load — build layers in stacking order, then a cinematic tilt-in
+// Map layers — built on load and rebuilt whenever the base style is swapped
+// (dark/light), since setStyle drops custom sources/layers.
 // ---------------------------------------------------------------------------
-map.on("load", async () => {
+async function buildLayers() {
   addHillshade();
   add3dBuildings();
-  pref.setSunLight(null);
   await pref.initGreenOverlay();
   pref.initShadeLayers();
   initWalkedLayer();
   initRouteLayers();
   setWalkedData(walkedGeoJSON());
+  await pref.applyPreferenceOverlays(); // restores shade/green + sun light for the current pref
+  if (lastPath) {
+    map.getSource("route").setData({
+      type: "FeatureCollection",
+      features: [{ type: "Feature", geometry: { type: "LineString", coordinates: lastPath.points.coordinates.map((c) => [c[0], c[1]]) }, properties: {} }],
+    });
+  }
+}
+
+map.on("load", async () => {
+  await buildLayers();
   ensureStartMarker(DEFAULT_CENTER.lon, DEFAULT_CENTER.lat);
   if (!REDUCED) {
     map.easeTo({ pitch: 56, bearing: -18, zoom: 14.4, duration: 2400 });
@@ -746,6 +757,25 @@ document.getElementById("nav-sim").addEventListener("click", () => {
   document.querySelector("#nav-panel .nav-title").textContent = "Caminhando";
   nav.simulate(onNavUpdate);
 });
+
+// ---------------------------------------------------------------------------
+// Theme (dark / light) — swaps the base map style and rebuilds layers
+// ---------------------------------------------------------------------------
+const themeToggle = document.getElementById("theme-toggle");
+function setThemeIcon() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  themeToggle.textContent = dark ? "☀️" : "🌙";
+  themeToggle.setAttribute("aria-label", dark ? "Modo claro" : "Modo escuro");
+}
+themeToggle.addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme !== "dark";
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  try { localStorage.setItem("stride.theme", dark ? "dark" : "light"); } catch {}
+  setThemeIcon();
+  map.setStyle(MAP_STYLES[dark ? "dark" : "light"]);
+  map.once("style.load", buildLayers);
+});
+setThemeIcon();
 
 // ---------------------------------------------------------------------------
 // Init

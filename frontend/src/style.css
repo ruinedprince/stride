@@ -31,10 +31,47 @@
   --mono: "Spline Sans Mono", ui-monospace, monospace;
 }
 
+/* Dark theme — override the token set; components read the variables. */
+:root[data-theme="dark"] {
+  --ink: #eaefe9;
+  --ink-soft: #a7b1aa;
+  --ink-faint: #737e77;
+  --paper: rgba(23, 29, 26, 0.82);
+  --paper-solid: #191f1c;
+  --well: rgba(255, 255, 255, 0.06);
+  --hairline: rgba(255, 255, 255, 0.13);
+  --green: #2a9e5c;
+  --green-deep: #4bb377;
+  --alert: #e5695b;
+  --warn: #dab13c;
+  --shadow:
+    0 16px 48px rgba(0, 0, 0, 0.55),
+    0 2px 10px rgba(0, 0, 0, 0.4);
+}
+:root[data-theme="dark"] #panel { border-color: rgba(255, 255, 255, 0.08); }
+:root[data-theme="dark"] .stat,
+:root[data-theme="dark"] .saved-item,
+:root[data-theme="dark"] .nav-metrics > div,
+:root[data-theme="dark"] .hour { background: rgba(255, 255, 255, 0.04); }
+
 /* Ambient hour tint — the accent follows the chosen sun */
 body[data-hour="9"] { --sun: #e0b34f; }
 body[data-hour="12"] { --sun: #f2a93b; }
 body[data-hour="15"] { --sun: #df7e33; }
+
+#theme-toggle {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  font-size: 15px;
+  line-height: 1;
+  background: var(--well);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+#theme-toggle:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); }
 
 * { box-sizing: border-box; }
 
