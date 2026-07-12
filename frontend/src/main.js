@@ -271,30 +271,58 @@ async function passByPoi(type) {
   }
 }
 
-// Geolocation
+// Geolocation — with cause-specific messages (the old generic error never told
+// you WHY it failed: permission, insecure context, timeout).
+function onLocated(pos) {
+  const { latitude: lat, longitude: lon } = pos.coords;
+  setStart(lat, lon);
+  map.flyTo({ center: [lon, lat], zoom: 15, duration: REDUCED ? 0 : 1200 });
+  refreshWeather();
+  const inside = lon >= BBOX.lonMin && lon <= BBOX.lonMax && lat >= BBOX.latMin && lat <= BBOX.latMax;
+  setStatus(
+    inside
+      ? "Partida definida na sua localização."
+      : "Você está fora da área de Guaratinguetá-SP — a rota pode falhar. Toque no mapa dentro da cidade.",
+    inside ? "ok" : "warn"
+  );
+}
+
+function onLocateError(err, wasHighAccuracy) {
+  // Timeout on high accuracy → retry once with coarse (network) location.
+  if (err.code === err.TIMEOUT && wasHighAccuracy) {
+    navigator.geolocation.getCurrentPosition(onLocated, (e) => onLocateError(e, false), {
+      enableHighAccuracy: false,
+      timeout: 12000,
+      maximumAge: 60000,
+    });
+    return;
+  }
+  const msg = {
+    1: "Permissão de localização negada. Clique no 🔒 na barra de endereço → permitir localização, e tente de novo. Ou toque no mapa.",
+    2: "Localização indisponível no momento. Toque no mapa para escolher a partida.",
+    3: "A localização demorou demais. Toque no mapa para escolher a partida.",
+  }[err.code] || ("Não foi possível localizar: " + err.message);
+  setStatus(msg, "warn");
+}
+
 document.getElementById("locate").addEventListener("click", () => {
+  if (!window.isSecureContext) {
+    setStatus(
+      `Localização exige HTTPS ou <code>localhost</code> — você está em <code>${location.host}</code>. Toque no mapa para escolher a partida.`,
+      "warn"
+    );
+    return;
+  }
   if (!navigator.geolocation) {
     setStatus("Este navegador não oferece geolocalização.", "warn");
     return;
   }
   setStatus("Localizando…", "");
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const { latitude: lat, longitude: lon } = pos.coords;
-      setStart(lat, lon);
-      map.flyTo({ center: [lon, lat], zoom: 15, duration: REDUCED ? 0 : 1200 });
-      refreshWeather(); // conditions at the new start point
-      const inside = lon >= BBOX.lonMin && lon <= BBOX.lonMax && lat >= BBOX.latMin && lat <= BBOX.latMax;
-      setStatus(
-        inside
-          ? "Partida definida na sua localização."
-          : "Você está fora da área da demonstração (Guaratinguetá-SP) — a rota pode falhar.",
-        inside ? "ok" : "warn"
-      );
-    },
-    () => setStatus("Não foi possível obter sua localização. Toque no mapa para escolher a partida.", "warn"),
-    { enableHighAccuracy: true, timeout: 8000 }
-  );
+  navigator.geolocation.getCurrentPosition(onLocated, (e) => onLocateError(e, true), {
+    enableHighAccuracy: true,
+    timeout: 8000,
+    maximumAge: 30000,
+  });
 });
 
 // Surprise me — new random variation, generate immediately
