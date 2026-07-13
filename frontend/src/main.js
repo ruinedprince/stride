@@ -1,5 +1,5 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
-import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, addTreeLayer, initPoiLayer, setPoiBeacons, clearPoiBeacons, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
+import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, addTreeLayer, appendLiveTrees, initPoiLayer, setPoiBeacons, clearPoiBeacons, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm, fmtDuration } from "./ui.js";
@@ -8,7 +8,8 @@ import { drawRoute } from "./render.js";
 import * as pref from "./shade.js";
 import { fetchWeather, suggest } from "./weather.js";
 import { MOODS } from "./intent.js";
-import { loadPois, poisOfType } from "./pois.js";
+import { loadPois, poisOfType, addLivePois } from "./pois.js";
+import * as overpass from "./overpass.js";
 import * as nav from "./navigation.js";
 import { getWalks, saveWalk, deleteWalk, updateWalk } from "./storage.js";
 import { avoidModel, walkedGeoJSON, loadGrid, exploredStats } from "./discovery.js";
@@ -276,10 +277,19 @@ async function passByPoi(type) {
   });
 }
 
+const inHome = (lat, lon) => lon >= BBOX.lonMin && lon <= BBOX.lonMax && lat >= BBOX.latMin && lat <= BBOX.latMax;
+
 // Route a distance-loop that passes by one specific POI feature.
 async function routeThroughPoi(feature) {
   const lat = parseFloat(document.getElementById("lat").value);
   const lon = parseFloat(document.getElementById("lon").value);
+  // Outside the baked graph there are no routes yet (fase 4) — still show the
+  // POIs around you, just don't pretend we can route there.
+  if (!inHome(lat, lon)) {
+    setPoiMarker(feature.geometry.coordinates);
+    setStatus("Aqui fora ainda dá pra ver os POIs e prédios, mas gerar caminhada só na região de Guaratinguetá por enquanto (roteamento regional é a próxima fase).", "warn");
+    return;
+  }
   const { km, seed } = readForm();
   const [plon, plat] = feature.geometry.coordinates;
   const type = feature.properties.type;
@@ -817,6 +827,35 @@ themeToggle.addEventListener("click", () => {
   map.once("style.load", buildLayers);
 });
 setThemeIcon();
+
+// ---------------------------------------------------------------------------
+// Live surroundings — stream trees + POIs from Overpass for areas outside the
+// baked region, so the map stays alive as you pan anywhere.
+// ---------------------------------------------------------------------------
+const liveChip = document.createElement("div");
+liveChip.id = "live-chip";
+liveChip.hidden = true;
+liveChip.textContent = "🌳 carregando arredores…";
+document.body.appendChild(liveChip);
+
+let liveTimer = null;
+map.on("moveend", () => {
+  if (map.getZoom() < 14) return;
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(loadSurroundings, 600);
+});
+
+async function loadSurroundings() {
+  let started = false;
+  const res = await overpass.loadAround(map.getBounds(), () => {
+    started = true;
+    liveChip.hidden = false;
+  });
+  if (started) liveChip.hidden = true;
+  if (!res) return;
+  if (res.trees?.length) appendLiveTrees(res.trees);
+  if (res.pois?.length) addLivePois(res.pois);
+}
 
 // ---------------------------------------------------------------------------
 // Init

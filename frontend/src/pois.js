@@ -12,6 +12,20 @@ export async function loadPois() {
   return pois;
 }
 
+// Merge live-fetched POIs (Overpass, outside the baked region) into the pool,
+// de-duplicated by rounded coordinate so overlapping fetches don't stack.
+const seen = new Set();
+export function addLivePois(features) {
+  if (!pois) pois = { type: "FeatureCollection", features: [] };
+  for (const f of features || []) {
+    const [lon, lat] = f.geometry.coordinates;
+    const key = f.properties.type + ":" + lon.toFixed(5) + "," + lat.toFixed(5);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pois.features.push(f);
+  }
+}
+
 // POIs of a type, nearest first, capped — for the floating map icons.
 export function poisOfType(type, lat, lon, limit = 40) {
   if (!pois) return [];

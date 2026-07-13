@@ -340,6 +340,16 @@ export async function addTreeLayer() {
   }
 }
 
+// Append live-fetched trees (Overpass, areas outside the baked region) to the
+// same source/layer. Capped so panning across a big city can't grow unbounded.
+const MAX_TREE_FEATURES = 90000; // ~2 features/tree → ~45k trees on screen budget
+export function appendLiveTrees(pts) {
+  if (!treeFC || !pts || !pts.length || treeFC.features.length >= MAX_TREE_FEATURES) return;
+  treeFC.features.push(...buildTreeFC(pts).features);
+  const src = map.getSource("trees");
+  if (src) src.setData(treeFC);
+}
+
 // --- POI sky beacons -------------------------------------------------------
 // For the selected "Passar por" type: a tall light column rising into the sky
 // (world-3D, so it grows with zoom) topped by a big glowing icon floating above
