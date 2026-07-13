@@ -240,19 +240,37 @@ function octaRing(lon, lat, rM) {
   return ring;
 }
 
-function buildTreeFC(pts) {
+// color group c: 0 = trunk, 1 = broadleaf canopy, 2 = conifer canopy
+function box(lon, lat, r, base, h, c) {
+  return { type: "Feature", properties: { c, base, h }, geometry: { type: "Polygon", coordinates: [octaRing(lon, lat, r)] } };
+}
+
+function buildTreeFC(trees) {
   const feats = [];
-  for (let i = 0; i < pts.length; i++) {
-    const [lon, lat] = pts[i];
+  for (let i = 0; i < trees.length; i++) {
+    const [lon, lat, t] = trees[i];
     // deterministic per-tree variation (stable geometry across reloads)
     const r1 = ((i * 2654435761) % 1000) / 1000;
     const r2 = ((i * 40503 + 17) % 1000) / 1000;
     const r3 = ((i * 97 + 3) % 1000) / 1000;
-    const trunkH = 1.6 + r1 * 1.0;
-    const canR = 2.0 + r2 * 2.0;
-    const top = trunkH + 3.0 + r3 * 3.0;
-    feats.push({ type: "Feature", properties: { p: 0, base: 0, h: trunkH }, geometry: { type: "Polygon", coordinates: [octaRing(lon, lat, 0.45)] } });
-    feats.push({ type: "Feature", properties: { p: 1, base: trunkH, h: top }, geometry: { type: "Polygon", coordinates: [octaRing(lon, lat, canR)] } });
+    if (t === 1) {
+      // conifer — a thin trunk under three tapering tiers (a stylised pine)
+      const trunkH = 1.3 + r1 * 0.7;
+      const total = 3.6 + r3 * 3.4;
+      const canR = 1.7 + r2 * 1.1;
+      const h1 = total * 0.5, h2 = total * 0.32, h3 = total * 0.18;
+      feats.push(box(lon, lat, 0.34, 0, trunkH, 0));
+      feats.push(box(lon, lat, canR, trunkH, trunkH + h1, 2));
+      feats.push(box(lon, lat, canR * 0.66, trunkH + h1, trunkH + h1 + h2, 2));
+      feats.push(box(lon, lat, canR * 0.34, trunkH + h1 + h2, trunkH + h1 + h2 + h3, 2));
+    } else {
+      // broadleaf — trunk + one rounded canopy
+      const trunkH = 1.6 + r1 * 1.0;
+      const canR = 2.0 + r2 * 2.0;
+      const top = trunkH + 3.0 + r3 * 3.0;
+      feats.push(box(lon, lat, 0.45, 0, trunkH, 0));
+      feats.push(box(lon, lat, canR, trunkH, top, 1));
+    }
   }
   return { type: "FeatureCollection", features: feats };
 }
@@ -261,8 +279,8 @@ let treeFC = null; // cached so we don't rebuild geometry on every setStyle
 export async function addTreeLayer() {
   if (!treeFC) {
     try {
-      const { pts } = await fetch("/trees.json").then((r) => r.json());
-      treeFC = buildTreeFC(pts);
+      const { trees } = await fetch("/trees.json").then((r) => r.json());
+      treeFC = buildTreeFC(trees);
     } catch {
       treeFC = { type: "FeatureCollection", features: [] };
     }
@@ -270,9 +288,10 @@ export async function addTreeLayer() {
   if (!map.getSource("trees")) map.addSource("trees", { type: "geojson", data: treeFC });
   if (!map.getLayer("trees")) {
     const trunk = isDark() ? "#4a3320" : "#6d4b2c";
-    const canopy = isDark()
+    const broadleaf = isDark()
       ? ["interpolate", ["linear"], ["get", "h"], 4, "#2f5d38", 9, "#3f7a49"]
       : ["interpolate", ["linear"], ["get", "h"], 4, "#4f9e5a", 9, "#6cbf76"];
+    const conifer = isDark() ? "#234f34" : "#2f7048";
     map.addLayer(
       {
         id: "trees",
@@ -280,7 +299,7 @@ export async function addTreeLayer() {
         source: "trees",
         minzoom: 13.5,
         paint: {
-          "fill-extrusion-color": ["match", ["get", "p"], 0, trunk, canopy],
+          "fill-extrusion-color": ["match", ["get", "c"], 0, trunk, 2, conifer, broadleaf],
           "fill-extrusion-base": ["*", ["get", "base"], HEIGHT_EXAGGERATION],
           "fill-extrusion-height": ["*", ["get", "h"], HEIGHT_EXAGGERATION],
           "fill-extrusion-opacity": 0.95,
