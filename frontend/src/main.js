@@ -1,14 +1,14 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
-import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, addTreeLayer, initPoiIcons, setPoiIcons, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
+import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, addTreeLayer, initPoiLayer, setPoiBeacons, clearPoiBeacons, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm, fmtDuration } from "./ui.js";
-import { generateRoute, generateFaithful, generatePointToPoint, generateThrough } from "./routing.js";
+import { generateRoute, generateFaithful, generatePointToPoint, generateLoopVia } from "./routing.js";
 import { drawRoute } from "./render.js";
 import * as pref from "./shade.js";
 import { fetchWeather, suggest } from "./weather.js";
 import { MOODS } from "./intent.js";
-import { loadPois, nearestPoi, poisOfType } from "./pois.js";
+import { loadPois, poisOfType } from "./pois.js";
 import * as nav from "./navigation.js";
 import { getWalks, saveWalk, deleteWalk, updateWalk } from "./storage.js";
 import { avoidModel, walkedGeoJSON, loadGrid, exploredStats } from "./discovery.js";
@@ -24,7 +24,7 @@ async function buildLayers() {
   pref.initShadeLayers();
   initWalkedLayer();
   await addTreeLayer();
-  initPoiIcons();
+  initPoiLayer();
   initRouteLayers();
   setWalkedData(walkedGeoJSON());
   await pref.applyPreferenceOverlays(); // restores shade/green + sun light for the current pref
@@ -253,34 +253,53 @@ function highlightPoi(type) {
 function clearPoi() {
   document.querySelectorAll("#poi-row .mood.is-active").forEach((b) => b.classList.remove("is-active"));
   setPoiMarker(null);
-  setPoiIcons([]);
+  clearPoiBeacons();
 }
 
+// Click a type → raise the sky beacons for every POI of that type and route a
+// loop that passes by the nearest one. Clicking any beacon re-routes via it.
 async function passByPoi(type) {
   const lat = parseFloat(document.getElementById("lat").value);
   const lon = parseFloat(document.getElementById("lon").value);
-  const poi = nearestPoi(type, lat, lon);
-  if (!poi) {
+  const list = poisOfType(type, lat, lon);
+  if (!list.length) {
     setStatus("Nenhum ponto desse tipo por perto.", "warn");
     return;
   }
+  clearMoodHighlight();
+  highlightPoi(type);
+  setPoiBeacons(list, (f) => routeThroughPoi(f)); // clickable sky icons
+  const nearest = list[0];
+  await routeThroughPoi({
+    geometry: nearest.geometry,
+    properties: { type, name: nearest.properties.name },
+  });
+}
+
+// Route a distance-loop that passes by one specific POI feature.
+async function routeThroughPoi(feature) {
+  const lat = parseFloat(document.getElementById("lat").value);
+  const lon = parseFloat(document.getElementById("lon").value);
+  const { km, seed } = readForm();
+  const [plon, plat] = feature.geometry.coordinates;
+  const type = feature.properties.type;
+  const nm = feature.properties.name || POI_NAMES[type];
   const btn = document.getElementById("generate");
   setBusy(btn, true);
   clearAltRoute();
-  clearMoodHighlight();
-  highlightPoi(type);
-  setPoiIcons(poisOfType(type, lat, lon));
   await pref.applyPreferenceOverlays();
-  setStatus("Traçando a ida e volta…", "");
+  setStatus(`Traçando um circuito passando por ${nm}…`, "");
   try {
-    const resp = await generateThrough([[lon, lat], [poi.lon, poi.lat], [lon, lat]], routeSpec());
-    setPoiMarker([poi.lon, poi.lat]);
-    drawRoute(resp);
-    afterRoute(resp.paths[0]);
-    const nm = poi.name || POI_NAMES[type];
-    setStatus(`Ida e volta por ${nm} · ${fmtKm(resp.paths[0].distance)} (${Math.round(poi.dist)} m de ida).`, "ok");
+    const best = await generateLoopVia(lat, lon, { lat: plat, lon: plon }, km, seed, routeSpec(), pref.prefCollection());
+    setPoiMarker([plon, plat]);
+    drawRoute(best.response);
+    afterRoute(best.response.paths[0]);
+    const via = best.passes ? `passando por ${nm}` : `perto de ${nm}`;
+    const grew = best.targetKm > km + 0.05 ? ` (esticado p/ ${best.targetKm.toFixed(1)} km p/ alcançá-lo)` : "";
+    setStatus(`Circuito ${via} · ${fmtKm(best.response.paths[0].distance)}${grew}.`, "ok");
   } catch (err) {
-    setStatus("Erro ao traçar a rota: " + err.message, "error");
+    if (err instanceof TypeError) setStatus("Servidor de rotas indisponível em <code>localhost:8989</code> (veja o README).", "warn");
+    else setStatus("Erro ao traçar a rota: " + err.message, "error");
   } finally {
     setBusy(btn, false);
   }

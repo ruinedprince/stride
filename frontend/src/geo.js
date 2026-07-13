@@ -11,6 +11,25 @@ export function haversine(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+// Initial bearing (degrees, 0=N clockwise) from point 1 to point 2.
+export function bearingDeg(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const φ1 = toRad(lat1), φ2 = toRad(lat2), Δλ = toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (Math.atan2(y, x) * 180) / Math.PI;
+}
+
+// Nearest approach (metres) of a route (coords [lon,lat]) to a point.
+export function minDistToRoute(lat, lon, coords) {
+  let best = Infinity;
+  for (const c of coords) {
+    const d = haversine(lat, lon, c[1], c[0]);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 function pointInRing(lon, lat, ring) {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {

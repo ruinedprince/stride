@@ -954,6 +954,62 @@ body {
   to { transform: scale(1.25); opacity: 0; }
 }
 
+/* POI sky beacon — a big glowing icon floating above the light column.
+   NB: the bob animation lives on the inner disc, never on .poi-sky itself —
+   MapLibre positions the marker via an inline transform on .poi-sky, and a CSS
+   transform animation there would override it and fling the icon to (0,0). */
+.poi-sky {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+.poi-sky-disc {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 29px;
+  line-height: 1;
+  background: var(--c);
+  box-shadow: 0 0 0 4px #fff, 0 0 24px 8px var(--glow), 0 12px 22px rgba(16, 26, 20, 0.42);
+  animation: poibob 2.6s ease-in-out infinite;
+}
+.poi-sky:hover .poi-sky-disc { filter: brightness(1.13); }
+.poi-sky-halo {
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  border: 2.5px solid var(--c);
+  opacity: 0.6;
+  animation: pulse 2.2s ease-out infinite;
+}
+.poi-sky-tag {
+  margin-top: 8px;
+  max-width: 150px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #23281f;
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 9px rgba(16, 26, 20, 0.22);
+}
+[data-theme="dark"] .poi-sky-tag {
+  color: #e8ede6;
+  background: rgba(20, 24, 18, 0.9);
+}
+@keyframes poibob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
 /* ==========================================================================
    Accessibility & motion
    ========================================================================== */

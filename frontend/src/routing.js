@@ -1,8 +1,8 @@
 // GraphHopper round_trip requests and the best-of-N selection.
 import { GRAPHHOPPER_URL, BEST_OF, BEST_OF_SHADE, DIST_BAND } from "./config.js";
-import { fractionIn } from "./geo.js";
+import { fractionIn, bearingDeg, haversine, minDistToRoute } from "./geo.js";
 
-export async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
+export async function generateRoute(lat, lon, distanceKm, seed, spec = {}, heading = null) {
   const profile = spec.profile || "foot";
   const cm = spec.customModel || null;
   const base = {
@@ -15,6 +15,8 @@ export async function generateRoute(lat, lon, distanceKm, seed, spec = {}) {
     elevation: true, // 3rd coordinate + ascend/descend for the profile chart
     locale: "pt", // turn-by-turn instructions in Portuguese
   };
+  // Bias the loop to set off toward a via (used by the pass-by-a-POI loops).
+  if (heading != null) base.heading = ((Math.round(heading) % 360) + 360) % 360;
 
   let res;
   if (cm) {
@@ -108,4 +110,52 @@ export async function generateFaithful(lat, lon, distanceKm, baseSeed, spec, ran
     chosen = ok.slice().sort((a, b) => a.distErr - b.distErr)[0];
   }
   return { ...chosen, tried: ok.length };
+}
+
+// A loop of ~the target distance that PASSES BY a POI (not an out-and-back to
+// it — the whole point of the app is to shape the walk, not reach a goal).
+// Round trips are seeded to set off toward the POI (heading), across a fan of
+// bearings; we keep the loop that actually passes closest to the POI while
+// staying distance-faithful (and shadiest/greenest if a preference is active).
+export async function generateLoopVia(lat, lon, poi, distanceKm, baseSeed, spec, rankFC = null) {
+  const bearing = bearingDeg(lat, lon, poi.lat, poi.lon);
+  const straightM = haversine(lat, lon, poi.lat, poi.lon);
+  // The loop must be long enough to reach the POI and come back.
+  const minKm = (straightM * 2 * 1.3) / 1000;
+  const targetKm = Math.max(distanceKm, minKm);
+  const target = targetKm * 1000;
+  const count = spec.customModel ? BEST_OF_SHADE : BEST_OF;
+  const PASS = 75; // metres — "passes by" threshold
+
+  const settled = await Promise.all(
+    Array.from({ length: count }, (_, i) => {
+      const heading = bearing + (i - (count - 1) / 2) * 14; // fan around the POI bearing
+      return generateRoute(lat, lon, targetKm, baseSeed + i, spec, heading).then((r) => {
+        const coords = r.paths[0].points.coordinates;
+        return {
+          response: r,
+          distance: r.paths[0].distance,
+          distErr: Math.abs(r.paths[0].distance - target) / target,
+          near: minDistToRoute(poi.lat, poi.lon, coords),
+          metric: rankFC ? fractionIn(coords.map((c) => [c[0], c[1]]), rankFC) : null,
+        };
+      }, () => null);
+    })
+  );
+  const ok = settled.filter(Boolean);
+  if (!ok.length) throw new TypeError("no route");
+
+  const passing = ok.filter((c) => c.near <= PASS);
+  let chosen;
+  if (!passing.length) {
+    // None passed within threshold → take the one that got closest.
+    chosen = ok.slice().sort((a, b) => a.near - b.near)[0];
+  } else {
+    const bestErr = Math.min(...passing.map((c) => c.distErr));
+    const acc = passing.filter((c) => c.distErr <= bestErr + DIST_BAND);
+    chosen = rankFC
+      ? acc.sort((a, b) => (b.metric ?? 0) - (a.metric ?? 0))[0]
+      : acc.sort((a, b) => a.distErr - b.distErr)[0];
+  }
+  return { ...chosen, tried: ok.length, targetKm, passes: chosen.near <= PASS };
 }
