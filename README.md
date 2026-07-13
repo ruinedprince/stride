@@ -70,10 +70,8 @@ pip install shapely
 # script streams one Brazil quadkey tile and filters to the bbox)
 python backend/scripts/fetch_ms_buildings.py
 
-# Shadow polygons + custom models for every daylight hour (also writes
-# shade-index.json — the manifest the sun slider reads). Hours whose sun is
-# below 8° are skipped automatically.
-python backend/scripts/build_shade_areas.py --date 2026-07-03 --hours 8,9,10,11,12,13,14,15,16
+# Shade is no longer baked — it's cast live in the browser (dynshade.js) from the
+# buildings in view + the real sun position, so it works anywhere at any hour.
 
 # 3D buildings → vector tiles. Extract every footprint in the bbox to NDJSON,
 # tile it (geojson-vt + vt-pbf), then pack into frontend/public/buildings.pmtiles.
@@ -136,28 +134,28 @@ length-weighted shares **"In green areas"** and **"In shade"**.
 
 ```
 backend/
-  config.yml                 GraphHopper config: foot, foot_green,
-                             foot_shade_{9,12,15} profiles, flexible mode (no CH)
+  config.yml                 GraphHopper config: foot, foot_green profiles,
+                             flexible mode (no CH). Shade routing is per-request
+                             (custom model POSTed from the browser).
   custom_models/green.json   generated: green areas + priority rules
-  custom_models/shade_*.json generated: per-hour shadow areas + priority rules
   scripts/build_green_areas.py   OSM → green polygons (model + overlay), stdlib-only
   scripts/fetch_ms_buildings.py  Microsoft ML footprints for the bbox, stdlib-only
-  scripts/build_shade_areas.py   solar position + shadow casting → shade models (shapely)
+  scripts/build_trees.py         OSM → tree positions (real + scattered), stdlib-only
   data/guaratingueta.osm     OSM extract (downloaded, gitignored)
   data/ms_buildings.geojsonl MS footprints (downloaded, gitignored)
   graphhopper-web-11.0.jar   server jar (downloaded, gitignored)
   graph-cache/               generated graph (gitignored)
 frontend/
   index.html                 form: start point, distance, presets, seed,
-                             route preference (green / shade@9/12/15), compare
-  src/main.js                MapLibre map, GraphHopper call, green + shade
-                             overlays, compare mode, length-weighted stats,
-                             loop-closure check, SAMPLE fallback
+                             route preference (green / shade), compare
+  src/main.js                orchestrator: map, GraphHopper calls, overlays
+  src/dynshade.js            live shadow casting (solar position + projection)
+  src/overpass.js            live OSM fetch (trees/POIs) outside the baked region
   src/style.css
-  public/green-areas.geojson generated green polygons for display
-  public/shade-*.geojson     generated per-hour shadow maps (display + routing)
-  public/shade-index.json    manifest: baked hours + sun position, read by the slider
-  public/buildings.geojson   generated 3D building footprints (same as shadows)
+  public/green-areas.geojson generated green polygons (display + routing)
+  public/trees.json          generated tree positions (built into 3D in the browser)
+  public/pois.geojson        generated points of interest
+  public/buildings.pmtiles   generated 3D building vector tiles (viewport-streamed)
   public/sample-route.json   offline fallback, clearly labeled SAMPLE
 ```
 
@@ -361,49 +359,41 @@ the building extrusions re-based onto the terrain.
 ## Phase 2 — shade-aware walks (how it works)
 
 The idea (inspired by [CoolWalks, arXiv:2405.01225](https://arxiv.org/abs/2405.01225)):
-walking comfort depends on *when* you walk. For each preset local hour, Stride computes
-the city's shadow map and routes through it, using the exact mechanism validated in
-Phase 1 — a generated custom model whose areas are the shadows.
+walking comfort depends on *when* you walk. Stride casts the city's shadows **live, in the
+browser** (`frontend/src/dynshade.js`) and routes through them — so shade works at any hour,
+any date and **anywhere on the map**, not just a pre-baked city.
 
-Pipeline (`backend/scripts/build_shade_areas.py`, needs shapely):
+How it works, per frame / per route:
 
-1. **Sun position** — NOAA solar position (pure Python, ±0.2°). Sanity check that the
-   physics is right: on 2026-07-03 (southern winter) at this latitude the noon sun sits
-   at azimuth 1.6° — **due north** — elevation 44°, exactly as it should below the
-   Tropic of Capricorn in July.
-2. **Obstacles** — buildings, trees, tree rows and woods. OSM building coverage here is
-   too sparse to be credible (measured: **93 buildings within 1 km** of the demo center,
-   2,299 of 2,742 beyond 3 km), so footprints come primarily from **Microsoft's ML
-   dataset**: 96,754 buildings in the bbox — 35× OSM — of which ~28k fall in the 4 km
-   working radius.
-3. **Shadow casting** — each obstacle casts `height / tan(elevation)` meters of shadow
-   away from the sun (footprint + translated footprint + a quad per edge), ~208k pieces
-   unioned with shapely, simplified, largest 250 polygons kept per hour.
-4. **Routing** — edges not touching that hour's shade get `priority × 0.3` (the
-   multiplier tuned in Phase 1), via a **per-request custom model** posted in the route
-   body. The frontend builds that model in JS from the display geojson itself (verified
-   to route identically to the committed `shade_<H>.json`), so any hour routes with no
-   server restart and no per-hour profiles.
+1. **Sun position** — NOAA solar position in JS (±~1°). Sanity check that the physics is
+   right: today at this latitude the noon sun sits near azimuth 0° — **due north** —
+   elevation ~45°, exactly as it should below the Tropic of Capricorn in July. (Validated
+   against the old baked values: 12 h → az 1.9°/el 45.4° vs. 1.6°/44.2°.) The time-of-day
+   slider is read as *local solar time at the viewed longitude*, so it means the same thing
+   everywhere.
+2. **Obstacles** — the building footprints already in view (`querySourceFeatures`). In the
+   home region those are the high-detail PMTiles (OSM + **Microsoft's ML dataset**, 96,754
+   buildings in the bbox — 35× OSM, since OSM had just 93 within 1 km of the center);
+   elsewhere they're OpenFreeMap's worldwide building tiles with `render_height`.
+3. **Shadow casting** — each footprint is swept `height / tan(elevation)` metres away from
+   the sun (capped at 220 m); the shadow is the convex hull of footprint ∪ swept-footprint.
+   Pure JS, no server, no shapely.
+4. **Routing** — the live shadow polygons become a **per-request custom model**: edges not
+   in shade get `priority × 0.3` (the multiplier tuned in Phase 1), and best-of-N picks the
+   shadiest distance-faithful loop. Same mechanism as green; the model is built from the
+   shadows in view at route time.
 
-**Dynamic time-of-day.** Daylight is baked hour by hour (8–17 h on 2026-07-03; hours whose
-sun is below 4° — before ~7:30 and after ~17:15 in this winter month — are skipped) and
-the sun becomes a **continuous slider**. Dragging it moves the sun, the 3D sunlight and the
-UI tint *continuously* (azimuth/elevation interpolated between the two bracketing baked
-hours, via `shade-index.json`). The shadow overlay **cross-dissolves** between those two
-baked hours across a two-layer blend — so there's no hard snap and, crucially, no per-tick
-re-parse: dragging inside an hour only writes two fill-opacities. Routing still snaps to the
-nearest baked hour (a route is for one time). Earlier hours (a 6 h summer walk) or arbitrary
-dates would need a denser bake per date or an on-demand compute service — a documented next
-step, not in this build.
+**Dynamic time-of-day.** The sun is a **continuous slider** (6–18 h). Dragging it recomputes
+the sun, the 3D sunlight, the UI tint and the shadows live (coalesced to one recompute per
+animation frame). No baked hours, no per-date regeneration, no manifest.
 
 Honest limitations, on purpose:
 
-- **Heights are mostly defaults** (4 m houses, 12 m churches, `building:levels`×3 when
-  tagged — only 59 of 2.7k OSM buildings carry height data; MS estimates used when
-  present). The shadow map is a *realistic relative preference*, not survey-grade.
-- Shade models are **baked per date** (committed: 2026-07-03) at three preset hours;
-  regenerate with `--date`/`--hours` for other days. Below 8° sun elevation the hour is
-  skipped (everything is shade).
-- Same Phase 1 caveats: closed ways only, 250-polygon cap, ~4 km working radius around
-  the demo center.
-- Microsoft footprints are ML-extracted (ODbL); positional quality varies.
+- **Heights are mostly defaults** (4 m houses, `building:levels`×3 when tagged; MS/render
+  estimates otherwise). The shadow map is a *realistic relative preference*, not survey-grade.
+- Live casting uses the **buildings currently loaded** (viewport + a tile margin), so a route
+  much larger than the view may lose shade coverage at its far edge. Convex-hull shadows
+  slightly over-cover concave footprints.
+- **Routing itself is still bounded by the GraphHopper graph** (the Guaratinguetá extract) —
+  shade renders anywhere, but *generating* a walk needs graph data for that area (a regional
+  graph is the open next step). Microsoft footprints are ML-extracted (ODbL); quality varies.

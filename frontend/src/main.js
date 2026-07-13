@@ -24,7 +24,6 @@ async function buildLayers() {
   add3dBuildings();
   initDynShadeLayer();
   await pref.initGreenOverlay();
-  pref.initShadeLayers();
   initWalkedLayer();
   await addTreeLayer();
   initPoiLayer();
@@ -146,13 +145,12 @@ document.querySelectorAll("#pref-segment .seg").forEach((btn) => {
   btn.addEventListener("click", () => { selectPref(btn.dataset.pref); clearMoodHighlight(); });
 });
 
-// Continuous sun slider — moves the sun, tint and 3D light every frame, and
-// cross-dissolves the shadow overlay between the bracketing baked hours.
+// Continuous sun slider — moves the sun, tint and 3D light, and re-casts the
+// live shadows for the new time.
 const sunSlider = document.getElementById("sun-slider");
 sunSlider.addEventListener("input", () => {
   pref.setHour(parseFloat(sunSlider.value));
   pref.applySunVisuals();
-  pref.updateShadeBlend();
   scheduleDynShade();
   clearMoodHighlight();
 });
@@ -303,6 +301,7 @@ async function routeThroughPoi(feature) {
   setBusy(btn, true);
   clearAltRoute();
   await pref.applyPreferenceOverlays();
+  updateDynShade();
   setStatus(`Traçando um circuito passando por ${nm}…`, "");
   try {
     const best = await generateLoopVia(lat, lon, { lat: plat, lon: plon }, km, seed, routeSpec(), pref.prefCollection());
@@ -462,6 +461,7 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
   clearAltRoute();
   clearPoi();
   await pref.applyPreferenceOverlays();
+  updateDynShade(); // fresh shadows feed the shade-aware routing model
   setStatus(mode === "ab" ? "Traçando a rota…" : "Traçando a caminhada…", "");
 
   try {
@@ -518,6 +518,7 @@ document.getElementById("compare").addEventListener("click", async () => {
   const btn = document.getElementById("compare");
   setBusy(btn, true);
   await pref.applyPreferenceOverlays();
+  updateDynShade();
   setStatus("Traçando as duas caminhadas…", "");
 
   try {
@@ -850,6 +851,10 @@ map.on("moveend", () => {
   clearTimeout(liveTimer);
   liveTimer = setTimeout(loadSurroundings, 600);
 });
+// Re-cast shade once building tiles finish loading (they arrive after moveend).
+map.on("sourcedata", (e) => {
+  if (e.isSourceLoaded && (e.sourceId === "buildings" || e.sourceId === "openmaptiles")) scheduleDynShade();
+});
 
 async function loadSurroundings() {
   let started = false;
@@ -866,42 +871,52 @@ async function loadSurroundings() {
 // Dynamic shade — cast shadows live from the buildings in view, for areas
 // outside the baked region (the home region keeps its higher-quality baked
 // shade). Driven by the same sun slider; only when the "sombra" preference is on.
-let dynRaf = 0;
+let dynTimer = 0;
 function scheduleDynShade() {
-  if (dynRaf) return;
-  dynRaf = requestAnimationFrame(() => { dynRaf = 0; updateDynShade(); });
+  clearTimeout(dynTimer);
+  dynTimer = setTimeout(updateDynShade, 80); // coalesce bursts (slider drags, moves)
 }
 
+// Gather building footprints from the loaded vector tiles (querySourceFeatures
+// covers a bit beyond the viewport, so a routed loop keeps shade coverage).
 function gatherBuildings() {
-  const layers = ["stride-3d-buildings-global", "stride-3d-buildings"].filter((l) => map.getLayer(l));
-  if (!layers.length) return [];
   const out = [], seen = new Set();
-  for (const f of map.queryRenderedFeatures({ layers })) {
-    const h = f.properties.render_height ?? f.properties.h;
-    if (!h || h < 2) continue;
-    const g = f.geometry;
-    const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
-    for (const poly of polys) {
-      const ring = poly[0];
-      const key = ring[0][0].toFixed(5) + "," + ring[0][1].toFixed(5) + "," + Math.round(h);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ ring, height: h });
-      if (out.length >= 900) return out;
+  const srcs = [["buildings", "buildings", "h"], ["openmaptiles", "building", "render_height"]];
+  for (const [src, sourceLayer, hKey] of srcs) {
+    if (!map.getSource(src)) continue;
+    let feats;
+    try { feats = map.querySourceFeatures(src, { sourceLayer }); } catch { continue; }
+    for (const f of feats) {
+      const h = f.properties[hKey];
+      if (!h || h < 2) continue;
+      const g = f.geometry;
+      const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+      for (const poly of polys) {
+        const ring = poly[0];
+        const key = ring[0][0].toFixed(5) + "," + ring[0][1].toFixed(5) + "," + Math.round(h);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ ring, height: h });
+        if (out.length >= 2500) return out;
+      }
     }
   }
   return out;
 }
 
+// Cast the shadows for the current view + hour, show them, and hand them to the
+// shade module so they also drive shade-aware routing. Works everywhere now.
 function updateDynShade() {
-  const c = map.getCenter();
-  // Only outside the baked region, when shade is on and we're zoomed in enough.
-  if (pref.pref !== "shade" || inHome(c.lat, c.lng) || map.getZoom() < 14) {
+  if (pref.pref !== "shade" || map.getZoom() < 13) {
     setDynShade(null);
+    pref.setActiveShade(null);
     return;
   }
+  const c = map.getCenter();
   const sun = sunForHour(c.lat, c.lng, pref.hour);
-  setDynShade(computeShadows(gatherBuildings(), c.lat, sun.az, sun.el));
+  const fc = computeShadows(gatherBuildings(), c.lat, sun.az, sun.el);
+  setDynShade(fc);
+  pref.setActiveShade(fc);
 }
 
 // ---------------------------------------------------------------------------
@@ -914,9 +929,7 @@ loadPois();
 loadGrid().then(renderSaved);
 renderSaved();
 
-pref.loadManifest().then((hours) => {
-  if (!hours) return;
-  sunSlider.min = String(hours[0]);
-  sunSlider.max = String(hours[hours.length - 1]);
-  pref.updateSunArc();
-});
+// Shade is cast live for any hour now, so the slider spans the daylit hours.
+sunSlider.min = "6";
+sunSlider.max = "18";
+pref.updateSunArc();

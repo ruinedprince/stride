@@ -1,7 +1,6 @@
 // Weather-aware suggestions (open-meteo — free, no API key). Reads current
 // conditions near the start point and proposes a route setup, tying the hot+sunny
 // case straight into the shade engine.
-import { nearestBaked } from "./shade.js";
 
 export async function fetchWeather(lat, lon) {
   const url =
@@ -49,7 +48,7 @@ export function suggest(d) {
       headline: `${w.temp}° · sol forte`,
       message: "Está quente e ensolarado — priorizei sombra pra sua caminhada mais fresca.",
       pref: "shade",
-      hour: nearestBaked(w.localHour),
+      hour: Math.max(6, Math.min(18, w.localHour)),
     };
   }
   if (w.isDay && w.temp >= 15 && w.rainSoon < 30) {

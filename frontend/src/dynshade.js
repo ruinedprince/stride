@@ -52,7 +52,18 @@ function convexHull(points) {
 
 const MAX_SHADOW_M = 220; // clamp huge low-sun shadows
 
-// buildings: [{ ring:[[lon,lat],...], height }]. Returns a shade FeatureCollection.
+function ringAreaM2(ring, lat) {
+  const mPerLon = 111320 * Math.cos(lat * RAD), mPerLat = 110540;
+  let a = 0;
+  for (let i = 1; i < ring.length; i++) {
+    const [x1, y1] = ring[i - 1], [x2, y2] = ring[i];
+    a += (x1 * mPerLon) * (y2 * mPerLat) - (x2 * mPerLon) * (y1 * mPerLat);
+  }
+  return Math.abs(a) / 2;
+}
+
+// buildings: [{ ring:[[lon,lat],...], height }]. Returns a shade FeatureCollection
+// whose features carry an id + area_m2 so they can seed a routing custom model.
 export function computeShadows(buildings, lat, sunAz, sunEl) {
   const feats = [];
   if (sunEl <= 3) return { type: "FeatureCollection", features: feats }; // sun down / grazing
@@ -66,7 +77,14 @@ export function computeShadows(buildings, lat, sunAz, sunEl) {
     const pts = [];
     for (const [x, y] of b.ring) { pts.push([x, y]); pts.push([x + offLon, y + offLat]); }
     const hull = convexHull(pts);
-    if (hull.length >= 4) feats.push({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [hull] } });
+    if (hull.length >= 4) {
+      feats.push({
+        type: "Feature",
+        id: "sh" + feats.length,
+        properties: { area_m2: Math.round(ringAreaM2(hull, lat)) },
+        geometry: { type: "Polygon", coordinates: [hull] },
+      });
+    }
   }
   return { type: "FeatureCollection", features: feats };
 }

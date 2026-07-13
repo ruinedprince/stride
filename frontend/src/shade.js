@@ -1,59 +1,26 @@
-// Preference state and everything shade/sun/green: the baked-hour model, the
-// continuous sun interpolation, the two-layer shade cross-dissolve, the sun arc,
-// and how a preference maps to a GraphHopper routing spec.
+// Preference state and everything shade/sun/green. Shade is now cast live
+// everywhere (dynshade.js) — no baked-hour anchor. The current shadow polygons
+// (computed by main from the buildings in view) are handed here via
+// setActiveShade and drive both the map overlay and shade-aware routing.
 import { map } from "./map.js";
 import { CARDINAL, SHADE_OPACITY, TOP_SHADE_POLYS } from "./config.js";
 import { fmtHour } from "./ui.js";
-
-// Shade is pre-baked at whole hours (build_shade_areas.py); shade-index.json
-// lists each baked hour with the real sun azimuth/elevation.
-export let BAKED_HOURS = [9, 12, 15]; // replaced by the manifest on load
-export const SUN_BY_HOUR = {
-  9: { az: 47.7, el: 25.8 }, 12: { az: 1.6, el: 44.2 }, 15: { az: 314.1, el: 27.6 },
-};
+import { sunForHour } from "./dynshade.js";
 
 export let pref = "none"; // none | green | shade
-export let hour = 15; // continuous 8..17 while pref === shade
+export let hour = 15; // continuous local solar hour while pref === shade
 export function setPref(p) { pref = p; }
 export function setHour(h) { hour = h; }
 
 let greenAreas = null;
 export function getGreenAreas() { return greenAreas; }
 
-const shadeCache = {}; // integer hour -> geojson FeatureCollection
-const shadeModelCache = {}; // integer hour -> GraphHopper custom_model (built from geojson)
-let aHour = null, bHour = null;
-
-export function nearestBaked(h) {
-  return BAKED_HOURS.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a));
-}
-
-// The two baked hours bracketing the slider position.
-export function bracket(h) {
-  const lo = [...BAKED_HOURS].reverse().find((x) => x <= h) ?? BAKED_HOURS[0];
-  const hi = BAKED_HOURS.find((x) => x >= h) ?? BAKED_HOURS[BAKED_HOURS.length - 1];
-  return [lo, hi];
-}
-
-// Continuous sun az/el interpolated between the bracketing baked hours.
-// Azimuth is unwrapped so it doesn't jump across 360→0 at noon.
-export function sunAt(h) {
-  const [lo, hi] = bracket(h);
-  const a = SUN_BY_HOUR[lo], b = SUN_BY_HOUR[hi];
-  if (!a || !b) return a || b || { az: 0, el: 30 };
-  if (lo === hi) return a;
-  const t = (h - lo) / (hi - lo);
-  let az0 = a.az, az1 = b.az;
-  if (Math.abs(az1 - az0) > 180) az1 += az1 < az0 ? 360 : -360;
-  return { az: (az0 + (az1 - az0) * t + 360) % 360, el: a.el + (b.el - a.el) * t };
-}
-
-function shadeHour() {
-  return nearestBaked(hour);
-}
+// The live-cast shadow polygons for the current view/time (set by main.js).
+let shadeFC = { type: "FeatureCollection", features: [] };
+export function setActiveShade(fc) { shadeFC = fc || { type: "FeatureCollection", features: [] }; }
 
 export function activeShade() {
-  return pref === "shade" ? shadeCache[shadeHour()] || null : null;
+  return pref === "shade" ? shadeFC : null;
 }
 
 export function prefCollection() {
@@ -61,11 +28,11 @@ export function prefCollection() {
   return activeShade();
 }
 
-// green → static foot_green profile; shade → foot + per-request custom model;
-// none → plain foot.
+// green → static foot_green profile; shade → foot + per-request custom model
+// built from the live shadows; none → plain foot.
 export function routingSpec() {
   if (pref === "green") return { profile: "foot_green", customModel: null };
-  if (pref === "shade") return { profile: "foot", customModel: shadeModelCache[shadeHour()] || null };
+  if (pref === "shade") return { profile: "foot", customModel: shadeFC.features.length ? buildShadeModel(shadeFC) : null };
   return { profile: "foot", customModel: null };
 }
 
@@ -76,18 +43,16 @@ export function prefLabel() {
 }
 
 // The current preference as a per-request custom model (client-side), so it can
-// be merged with the "avoid walked" model. green/shade "keep those areas,
-// penalise the rest"; none → null. Green here is per-request instead of the
-// static foot_green profile (same top-N-areas mechanism as shade).
+// be merged with the "avoid walked" model.
 export function prefModel() {
   if (pref === "green") return greenAreas ? buildShadeModel(greenAreas) : null;
-  if (pref === "shade") return shadeModelCache[shadeHour()] || null;
+  if (pref === "shade") return shadeFC.features.length ? buildShadeModel(shadeFC) : null;
   return null;
 }
 
-// Custom model from a shade display geojson — polygons become `areas`, edges
-// outside them get priority × 0.3. Only the largest TOP_SHADE_POLYS polygons go
-// in the per-request model (payload/speed); the display overlay still shows all.
+// Custom model from a shade/green display geojson — polygons become `areas`,
+// edges outside them get priority × 0.3. Only the largest TOP_SHADE_POLYS
+// polygons go in the per-request model (payload/speed).
 function buildShadeModel(fc) {
   const feats = [...fc.features]
     .sort((a, b) => (b.properties?.area_m2 || 0) - (a.properties?.area_m2 || 0))
@@ -100,44 +65,17 @@ function buildShadeModel(fc) {
   return { priority, areas: { type: "FeatureCollection", features: feats } };
 }
 
-export async function ensureShade(h) {
-  if (shadeCache[h] !== undefined) return shadeCache[h];
-  try {
-    const fc = await fetch(`/shade-${h}.geojson`).then((r) => r.json());
-    shadeCache[h] = fc;
-    shadeModelCache[h] = buildShadeModel(fc);
-    if (fc.properties?.sun_azimuth_deg != null) {
-      SUN_BY_HOUR[h] = { az: fc.properties.sun_azimuth_deg, el: fc.properties.sun_elevation_deg };
-    }
-  } catch {
-    shadeCache[h] = null;
-  }
-  return shadeCache[h];
-}
-
-// Cross-dissolve the shade overlay to the slider position (two cheap opacity
-// writes per tick when both bracket hours are cached).
-export function updateShadeBlend() {
-  const [lo, hi] = bracket(hour);
-  const frac = hi > lo ? (hour - lo) / (hi - lo) : 0;
-  const paint = () => {
-    if (aHour !== lo && shadeCache[lo]) { map.getSource("shade-a").setData(shadeCache[lo]); aHour = lo; }
-    if (bHour !== hi && shadeCache[hi]) { map.getSource("shade-b").setData(shadeCache[hi]); bHour = hi; }
-    map.setPaintProperty("shade-a-fill", "fill-opacity", SHADE_OPACITY * (1 - frac));
-    map.setPaintProperty("shade-b-fill", "fill-opacity", SHADE_OPACITY * frac);
-  };
-  if (shadeCache[lo] !== undefined && shadeCache[hi] !== undefined) {
-    paint();
-  } else {
-    Promise.all([ensureShade(lo), ensureShade(hi)]).then(paint);
-  }
-}
-
 // --- sun visuals -------------------------------------------------------------
-export function setSunLight(hourOrNull) {
-  if (hourOrNull != null) {
-    const { az, el } = sunAt(hourOrNull);
-    map.setLight({ anchor: "map", position: [1.3, az, 90 - el], intensity: 0.35 });
+// Real sun position for the current view centre and slider hour.
+function currentSun() {
+  const c = map.getCenter();
+  return sunForHour(c.lat, c.lng, hour);
+}
+
+export function setSunLight(on) {
+  if (on) {
+    const { az, el } = currentSun();
+    map.setLight({ anchor: "map", position: [1.3, az, 90 - Math.max(0, el)], intensity: 0.35 });
   } else {
     map.setLight({ anchor: "viewport", position: [1.15, 210, 30], intensity: 0.25 });
   }
@@ -151,36 +89,30 @@ function sunColor(el) {
 }
 
 export function updateSunArc() {
-  const { az, el } = sunAt(hour);
-  const x = 20 + 160 * ((hour - 7) / 10); // 7h left → 17h right
+  const { az, el } = currentSun();
+  const x = 20 + 160 * Math.max(0, Math.min(1, (hour - 6) / 12)); // 6h left → 18h right
   const y = 92 - 80 * Math.max(0, Math.min(1, el / 50));
   document.getElementById("sun-dot").style.transform = `translate(${x}px, ${y}px)`;
-  const dir = CARDINAL[Math.round(az / 45) % 8];
-  document.getElementById("sun-info").textContent =
-    `${fmtHour(hour)} · sol a ${dir}, ${Math.round(el)}° acima do horizonte`;
+  const info = document.getElementById("sun-info");
+  if (el < 0) {
+    info.textContent = `${fmtHour(hour)} · sol abaixo do horizonte`;
+  } else {
+    const dir = CARDINAL[Math.round(az / 45) % 8];
+    info.textContent = `${fmtHour(hour)} · sol a ${dir}, ${Math.round(el)}° acima do horizonte`;
+  }
 }
 
 export function applySunVisuals() {
-  document.documentElement.style.setProperty("--sun", sunColor(sunAt(hour).el));
-  setSunLight(hour);
+  document.documentElement.style.setProperty("--sun", sunColor(currentSun().el));
+  setSunLight(true);
   updateSunArc();
 }
 
 export async function applyPreferenceOverlays() {
   const isShade = pref === "shade";
-  if (isShade) {
-    const [lo, hi] = bracket(hour);
-    await Promise.all([ensureShade(lo), ensureShade(hi)]);
-    updateShadeBlend();
-  }
   for (const layer of ["green-fill", "green-outline"]) {
     if (map.getLayer(layer)) {
       map.setLayoutProperty(layer, "visibility", pref === "green" ? "visible" : "none");
-    }
-  }
-  for (const layer of ["shade-a-fill", "shade-b-fill"]) {
-    if (map.getLayer(layer)) {
-      map.setLayoutProperty(layer, "visibility", isShade ? "visible" : "none");
     }
   }
   document.getElementById("sun-arc").hidden = !isShade;
@@ -188,25 +120,11 @@ export async function applyPreferenceOverlays() {
     applySunVisuals();
   } else {
     document.documentElement.style.removeProperty("--sun");
-    setSunLight(null);
+    setSunLight(false);
   }
 }
 
 // --- one-time map setup ------------------------------------------------------
-export function initShadeLayers() {
-  // Two layers cross-dissolve between the baked hours bracketing the slider.
-  for (const id of ["shade-a", "shade-b"]) {
-    map.addSource(id, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-    map.addLayer({
-      id: `${id}-fill`,
-      type: "fill",
-      source: id,
-      layout: { visibility: "none" },
-      paint: { "fill-color": "#31456b", "fill-opacity": 0 },
-    });
-  }
-}
-
 export async function initGreenOverlay() {
   try {
     greenAreas = await fetch("/green-areas.geojson").then((r) => r.json());
@@ -227,19 +145,5 @@ export async function initGreenOverlay() {
     });
   } catch {
     // Overlay is optional — routing still works without it.
-  }
-}
-
-// Manifest: which hours exist + their real sun position. Returns the sorted
-// hours (caller wires the slider bounds).
-export async function loadManifest() {
-  try {
-    const idx = await fetch("/shade-index.json").then((r) => r.json());
-    if (!Array.isArray(idx.hours) || !idx.hours.length) return null;
-    BAKED_HOURS = idx.hours.map((e) => e.h).sort((a, b) => a - b);
-    for (const e of idx.hours) SUN_BY_HOUR[e.h] = { az: e.az, el: e.el };
-    return BAKED_HOURS;
-  } catch {
-    return null; // falls back to the built-in 9/12/15
   }
 }
