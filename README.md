@@ -9,11 +9,12 @@ Scope so far: real loop routing in **Guaratinguetá-SP, Brazil** on 100% open-so
 infrastructure — no paid APIs, no keys.
 
 - **Routing:** [GraphHopper](https://github.com/graphhopper/graphhopper) 11.0 (Apache 2.0),
-  profiles `foot`, `foot_green`, `foot_shade_{9,12,15}`, `algorithm=round_trip`,
-  flexible mode (no CH).
-- **Data:** OpenStreetMap extract via Overpass (bbox lon `-45.30..-45.08`,
-  lat `-22.92..-22.70`) + [Microsoft Global ML Building Footprints](https://github.com/microsoft/GlobalMLBuildingFootprints)
-  (ODbL) for shadow casting.
+  profiles `foot`, `foot_green`, `algorithm=round_trip`, flexible mode (no CH). Shade is a
+  per-request custom model built in the browser (see Phase 2).
+- **Data:** OpenStreetMap extract via Overpass — the Guaratinguetá **microregion** (bbox lon
+  `-45.50..-44.90`, lat `-23.00..-22.55`: Guará, Aparecida, Lorena, Cachoeira Paulista,
+  Cruzeiro, Piquete…), roads + green only. Buildings come from tiles (Microsoft ML PMTiles at
+  home, OpenFreeMap worldwide); trees/POIs stream live via Overpass outside the home bbox.
 - **Frontend:** [MapLibre GL JS](https://maplibre.org/) + Vite, vanilla JS. OSM raster tiles.
 
 **Measured results (8 random seeds, 6 km target, length-weighted metrics):**
@@ -48,8 +49,10 @@ All commands from the repo root.
 # GraphHopper server jar (~45 MB, Maven Central)
 curl.exe -L -o backend/graphhopper-web-11.0.jar https://repo1.maven.org/maven2/com/graphhopper/graphhopper-web/11.0/graphhopper-web-11.0.jar
 
-# OSM extract of Guaratinguetá (~24 MB, Overpass API bbox clip)
-curl.exe -L -o backend/data/guaratingueta.osm "https://overpass-api.de/api/map?bbox=-45.30,-22.92,-45.08,-22.70"
+# Regional OSM extract (~21 MB) — roads + green for the Guará microregion. The
+# query in backend/data/region.overpassql excludes buildings (they come from
+# tiles now), so a 6x-larger area stays small. Overpass needs a User-Agent.
+curl.exe -sS -H "User-Agent: Stride/1.0" --data-urlencode "data@backend/data/region.overpassql" -o backend/data/region.osm "https://overpass-api.de/api/interpreter"
 
 # Frontend deps
 npm install --prefix frontend
@@ -141,7 +144,8 @@ backend/
   scripts/build_green_areas.py   OSM → green polygons (model + overlay), stdlib-only
   scripts/fetch_ms_buildings.py  Microsoft ML footprints for the bbox, stdlib-only
   scripts/build_trees.py         OSM → tree positions (real + scattered), stdlib-only
-  data/guaratingueta.osm     OSM extract (downloaded, gitignored)
+  data/region.osm            regional OSM extract (downloaded via region.overpassql, gitignored)
+  data/region.overpassql     the Overpass query that produces it (tracked)
   data/ms_buildings.geojsonl MS footprints (downloaded, gitignored)
   graphhopper-web-11.0.jar   server jar (downloaded, gitignored)
   graph-cache/               generated graph (gitignored)

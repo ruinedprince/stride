@@ -1,7 +1,7 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
 import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, addTreeLayer, appendLiveTrees, initPoiLayer, setPoiBeacons, clearPoiBeacons, initDynShadeLayer, setDynShade, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
 import { sunForHour, computeShadows } from "./dynshade.js";
-import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
+import { REDUCED, DEFAULT_CENTER, REGION } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm, fmtDuration } from "./ui.js";
 import { generateRoute, generateFaithful, generatePointToPoint, generateLoopVia } from "./routing.js";
@@ -280,7 +280,7 @@ async function passByPoi(type) {
   });
 }
 
-const inHome = (lat, lon) => lon >= BBOX.lonMin && lon <= BBOX.lonMax && lat >= BBOX.latMin && lat <= BBOX.latMax;
+const inRegion = (lat, lon) => lon >= REGION.lonMin && lon <= REGION.lonMax && lat >= REGION.latMin && lat <= REGION.latMax;
 
 // Route a distance-loop that passes by one specific POI feature.
 async function routeThroughPoi(feature) {
@@ -288,9 +288,9 @@ async function routeThroughPoi(feature) {
   const lon = parseFloat(document.getElementById("lon").value);
   // Outside the baked graph there are no routes yet (fase 4) — still show the
   // POIs around you, just don't pretend we can route there.
-  if (!inHome(lat, lon)) {
+  if (!inRegion(lat, lon)) {
     setPoiMarker(feature.geometry.coordinates);
-    setStatus("Aqui fora ainda dá pra ver os POIs e prédios, mas gerar caminhada só na região de Guaratinguetá por enquanto (roteamento regional é a próxima fase).", "warn");
+    setStatus("Aqui fora ainda dá pra ver os POIs e prédios, mas o roteamento cobre a região do Vale do Paraíba em volta de Guaratinguetá.", "warn");
     return;
   }
   const { km, seed } = readForm();
@@ -326,11 +326,11 @@ function onLocated(pos) {
   setStart(lat, lon);
   map.flyTo({ center: [lon, lat], zoom: 15, duration: REDUCED ? 0 : 1200 });
   refreshWeather();
-  const inside = lon >= BBOX.lonMin && lon <= BBOX.lonMax && lat >= BBOX.latMin && lat <= BBOX.latMax;
+  const inside = inRegion(lat, lon);
   setStatus(
     inside
       ? "Partida definida na sua localização."
-      : "Você está fora da área de Guaratinguetá-SP — a rota pode falhar. Toque no mapa dentro da cidade.",
+      : "Você está fora da região coberta (Vale do Paraíba em volta de Guaratinguetá) — a rota pode falhar. Toque no mapa dentro da região.",
     inside ? "ok" : "warn"
   );
 }

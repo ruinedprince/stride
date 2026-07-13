@@ -1,8 +1,11 @@
 # Stride Phase 0 — GraphHopper config (foot routing, flexible mode)
 # Based on config-example.yml from GraphHopper 11.0.
 graphhopper:
-  # OSM extract of Guaratinguetá-SP (bbox lon -45.30..-45.08, lat -22.92..-22.70)
-  datareader.file: data/guaratingueta.osm
+  # Regional OSM extract — Guaratinguetá microregion (bbox lon -45.50..-44.90,
+  # lat -23.00..-22.55: Guará, Aparecida, Lorena, Cachoeira Paulista, Cruzeiro,
+  # Piquete…). Roads + green only (buildings come from tiles now), so it stays
+  # small. Re-fetch with data/region.overpassql via the Overpass API.
+  datareader.file: data/region.osm
   graph.location: graph-cache
 
   # Phase 4 — elevation. CGIAR SRTM (90 m, open, no key) is downloaded on the

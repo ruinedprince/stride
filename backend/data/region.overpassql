@@ -1,0 +1,9 @@
+[out:xml][timeout:900];
+(
+  way["highway"](-23.00,-45.50,-22.55,-44.90);
+  way["leisure"~"^(park|garden|nature_reserve|recreation_ground|dog_park)$"](-23.00,-45.50,-22.55,-44.90);
+  way["landuse"~"^(forest|grass|meadow|village_green|recreation_ground)$"](-23.00,-45.50,-22.55,-44.90);
+  way["natural"~"^(wood|grassland|scrub|heath)$"](-23.00,-45.50,-22.55,-44.90);
+);
+(._;>;);
+out;

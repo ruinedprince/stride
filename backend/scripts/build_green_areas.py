@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent  # backend/
-OSM_FILE = BASE / "data" / "guaratingueta.osm"
+OSM_FILE = BASE / "data" / "region.osm"
 OUT_MODEL = BASE / "custom_models" / "green.json"
 OUT_GEOJSON = BASE.parent / "frontend" / "public" / "green-areas.geojson"
 
@@ -30,18 +30,18 @@ GREEN_TAGS = {
 }
 
 MIN_AREA_M2 = 500  # keep small urban squares (praças) — they matter for walking
-MAX_POLYGONS = 150  # keep the custom model statement chain bounded
+MAX_POLYGONS = 300  # keep the custom model statement chain bounded (regional now)
 # Tuned on 8 seeds (length-weighted green fraction, request-side custom models):
 # 0.55 → +0.2pp, 0.4 → +1.2pp, 0.3 → +3.7pp (7/8 seeds greener, distance ~same),
 # 0.2 → +4.4pp but diminishing. 0.3 is the sweet spot.
 NON_GREEN_PRIORITY = 0.3  # priority multiplier for edges OUTSIDE green areas
 BUFFER_M = 20  # expand polygons so streets ALONG a park edge count as green
-CENTER = (-45.1927, -22.8164)  # demo start point — used to weight selection
+CENTER = (-45.20, -22.775)  # region centre — used to weight selection
 
 # Ranking: raw area alone floods the list with rural woods far from where
 # people actually walk (measured: 92 green polygons within 3 km of the center,
 # only 6 survived a pure top-80-by-area cut). Weight area by proximity instead.
-PROXIMITY_SCALE_KM = 1.5
+PROXIMITY_SCALE_KM = 12  # gentle weighting so green counts across the whole region
 
 
 def polygon_area_m2(coords):

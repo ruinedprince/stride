@@ -9,6 +9,7 @@ backend/data/*.osm.pbf
 backend/data/*.osm.gz
 backend/data/*.geojsonl
 backend/graph-cache/
+backend/*.log
 
 # OS / editor
 .DS_Store

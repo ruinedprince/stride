@@ -1,7 +1,12 @@
 // Shared constants for the Stride frontend.
 export const GRAPHHOPPER_URL = "http://localhost:8989/route";
 export const DEFAULT_CENTER = { lat: -22.8164, lon: -45.1927 }; // Guaratinguetá-SP
+// Home = where the baked visuals live (trees.json / pois.geojson); Overpass
+// streams live data outside it.
 export const BBOX = { lonMin: -45.3, latMin: -22.92, lonMax: -45.08, latMax: -22.7 };
+// Region = where the GraphHopper graph can route (the regional OSM extract:
+// Guará microregion). Bigger than BBOX; used to gate "can we generate a walk here".
+export const REGION = { lonMin: -45.5, latMin: -23.0, lonMax: -44.9, latMax: -22.55 };
 export const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // Vertical exaggeration for the 3D blocks — footprints are mostly 1-story houses
