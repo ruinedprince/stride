@@ -101,14 +101,43 @@ function firstSymbolId() {
 
 const isDark = () => document.documentElement.dataset.theme === "dark";
 
+function buildingColor(prop) {
+  return isDark()
+    ? ["interpolate", ["linear"], ["get", prop], 3, "#2c322d", 8, "#363c35", 16, "#454b3d", 30, "#565b46"]
+    : ["interpolate", ["linear"], ["get", prop], 3, "#e7e1d4", 8, "#d8cdb8", 16, "#c2a988", 30, "#a98a6a"];
+}
+
 export function add3dBuildings() {
-  // Hide OpenMapTiles' own sparse building layer — we replace it with the full
-  // bbox footprints (OSM + Microsoft ML) that also cast the shadows.
+  // Hide OpenMapTiles' own flat building layer — we extrude instead.
   for (const layer of map.getStyle().layers) {
     if (layer.id.includes("building")) {
       map.setLayoutProperty(layer.id, "visibility", "none");
     }
   }
+
+  // Global fallback: extrude the basemap's own building footprints (keyless,
+  // worldwide) so cities OUTSIDE the baked region still get 3D blocks. The
+  // high-detail PMTiles below is drawn ON TOP for the home region (better
+  // footprints from OSM + Microsoft ML, and it feeds the shadows).
+  map.addLayer(
+    {
+      id: "stride-3d-buildings-global",
+      type: "fill-extrusion",
+      source: "openmaptiles",
+      "source-layer": "building",
+      minzoom: 13,
+      filter: ["!=", ["get", "hide_3d"], true],
+      paint: {
+        "fill-extrusion-color": buildingColor("render_height"),
+        "fill-extrusion-height": ["*", ["coalesce", ["get", "render_height"], 3], HEIGHT_EXAGGERATION],
+        "fill-extrusion-base": ["*", ["coalesce", ["get", "render_min_height"], 0], HEIGHT_EXAGGERATION],
+        "fill-extrusion-opacity": 0.92,
+        "fill-extrusion-vertical-gradient": true,
+      },
+    },
+    firstSymbolId()
+  );
+
   map.addSource("buildings", {
     type: "vector",
     url: `pmtiles://${location.origin}/buildings.pmtiles`,
