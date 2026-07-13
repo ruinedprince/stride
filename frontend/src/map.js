@@ -3,7 +3,7 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
-import { DEFAULT_CENTER, REDUCED, HEIGHT_EXAGGERATION } from "./config.js";
+import { DEFAULT_CENTER, REDUCED, HEIGHT_EXAGGERATION, SHADE_OPACITY } from "./config.js";
 
 // pmtiles:// protocol so MapLibre streams building vector tiles per viewport.
 maplibregl.addProtocol("pmtiles", new Protocol().tile);
@@ -338,6 +338,27 @@ export async function addTreeLayer() {
       firstSymbolId()
     );
   }
+}
+
+// Dynamic shade — live-cast shadow polygons for areas outside the baked region
+// (dynshade.js), on the ground beneath the buildings.
+export function initDynShadeLayer() {
+  if (!map.getSource("dyn-shade")) {
+    map.addSource("dyn-shade", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  }
+  if (!map.getLayer("dyn-shade-fill")) {
+    map.addLayer({
+      id: "dyn-shade-fill",
+      type: "fill",
+      source: "dyn-shade",
+      paint: { "fill-color": "#31456b", "fill-opacity": SHADE_OPACITY },
+    }, map.getLayer("stride-3d-buildings-global") ? "stride-3d-buildings-global" : firstSymbolId());
+  }
+}
+
+export function setDynShade(fc) {
+  const src = map.getSource("dyn-shade");
+  if (src) src.setData(fc || { type: "FeatureCollection", features: [] });
 }
 
 // Append live-fetched trees (Overpass, areas outside the baked region) to the

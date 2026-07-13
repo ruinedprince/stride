@@ -1,5 +1,6 @@
 // App wiring: the map-load setup sequence, DOM event handlers, and init.
-import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, addTreeLayer, appendLiveTrees, initPoiLayer, setPoiBeacons, clearPoiBeacons, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
+import { map, MAP_STYLES, add3dBuildings, addHillshade, initRouteLayers, initWalkedLayer, setWalkedData, addTreeLayer, appendLiveTrees, initPoiLayer, setPoiBeacons, clearPoiBeacons, initDynShadeLayer, setDynShade, ensureStartMarker, setDestMarker, setPoiMarker, setNavMarker, clearAltRoute } from "./map.js";
+import { sunForHour, computeShadows } from "./dynshade.js";
 import { REDUCED, DEFAULT_CENTER, BBOX } from "./config.js";
 import { fractionIn } from "./geo.js";
 import { setStatus, setBusy, fmtKm, fmtDuration } from "./ui.js";
@@ -21,6 +22,7 @@ import { avoidModel, walkedGeoJSON, loadGrid, exploredStats } from "./discovery.
 async function buildLayers() {
   addHillshade();
   add3dBuildings();
+  initDynShadeLayer();
   await pref.initGreenOverlay();
   pref.initShadeLayers();
   initWalkedLayer();
@@ -136,7 +138,9 @@ function selectPref(prefName) {
     b.classList.toggle("is-active", active);
     b.setAttribute("aria-checked", String(active));
   });
-  return pref.applyPreferenceOverlays();
+  const p = pref.applyPreferenceOverlays();
+  scheduleDynShade();
+  return p;
 }
 document.querySelectorAll("#pref-segment .seg").forEach((btn) => {
   btn.addEventListener("click", () => { selectPref(btn.dataset.pref); clearMoodHighlight(); });
@@ -149,6 +153,7 @@ sunSlider.addEventListener("input", () => {
   pref.setHour(parseFloat(sunSlider.value));
   pref.applySunVisuals();
   pref.updateShadeBlend();
+  scheduleDynShade();
   clearMoodHighlight();
 });
 
@@ -840,6 +845,7 @@ document.body.appendChild(liveChip);
 
 let liveTimer = null;
 map.on("moveend", () => {
+  scheduleDynShade();
   if (map.getZoom() < 14) return;
   clearTimeout(liveTimer);
   liveTimer = setTimeout(loadSurroundings, 600);
@@ -855,6 +861,47 @@ async function loadSurroundings() {
   if (!res) return;
   if (res.trees?.length) appendLiveTrees(res.trees);
   if (res.pois?.length) addLivePois(res.pois);
+}
+
+// Dynamic shade — cast shadows live from the buildings in view, for areas
+// outside the baked region (the home region keeps its higher-quality baked
+// shade). Driven by the same sun slider; only when the "sombra" preference is on.
+let dynRaf = 0;
+function scheduleDynShade() {
+  if (dynRaf) return;
+  dynRaf = requestAnimationFrame(() => { dynRaf = 0; updateDynShade(); });
+}
+
+function gatherBuildings() {
+  const layers = ["stride-3d-buildings-global", "stride-3d-buildings"].filter((l) => map.getLayer(l));
+  if (!layers.length) return [];
+  const out = [], seen = new Set();
+  for (const f of map.queryRenderedFeatures({ layers })) {
+    const h = f.properties.render_height ?? f.properties.h;
+    if (!h || h < 2) continue;
+    const g = f.geometry;
+    const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+    for (const poly of polys) {
+      const ring = poly[0];
+      const key = ring[0][0].toFixed(5) + "," + ring[0][1].toFixed(5) + "," + Math.round(h);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ ring, height: h });
+      if (out.length >= 900) return out;
+    }
+  }
+  return out;
+}
+
+function updateDynShade() {
+  const c = map.getCenter();
+  // Only outside the baked region, when shade is on and we're zoomed in enough.
+  if (pref.pref !== "shade" || inHome(c.lat, c.lng) || map.getZoom() < 14) {
+    setDynShade(null);
+    return;
+  }
+  const sun = sunForHour(c.lat, c.lng, pref.hour);
+  setDynShade(computeShadows(gatherBuildings(), c.lat, sun.az, sun.el));
 }
 
 // ---------------------------------------------------------------------------
